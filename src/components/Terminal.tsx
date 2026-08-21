@@ -122,6 +122,63 @@ export default function TerminalView({
     };
     enqueueRef.current = enqueue;
 
+    // Overlay scrollbar (xterm.js has no native widget): a thin thumb on
+    // the right edge tracking viewportY / baseY, draggable. Hidden while
+    // there is no local scrollback — tmux panes keep history remotely and
+    // stay in the alternate screen, so nothing appears for them.
+    const track = document.createElement("div");
+    track.className = "rc-scrollbar";
+    const thumb = document.createElement("div");
+    thumb.className = "rc-scrollbar-thumb";
+    track.appendChild(thumb);
+    container.appendChild(track);
+
+    const updateScrollbar = () => {
+      const buf = term.buffer.active;
+      const trackH = track.clientHeight;
+      if (buf.type !== "normal" || buf.baseY === 0 || trackH === 0) {
+        thumb.style.display = "none";
+        return;
+      }
+      const total = buf.baseY + term.rows;
+      const height = Math.max(24, Math.round((term.rows / total) * trackH));
+      const top = Math.round((buf.viewportY / buf.baseY) * (trackH - height));
+      thumb.style.display = "block";
+      thumb.style.height = `${height}px`;
+      thumb.style.top = `${top}px`;
+    };
+    const scrollbarDisposables = [
+      term.onScroll(updateScrollbar),
+      term.onWriteParsed(updateScrollbar),
+    ];
+
+    thumb.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      const startY = e.clientY;
+      const startViewportY = term.buffer.active.viewportY;
+      const range = track.clientHeight - thumb.clientHeight;
+      if (range <= 0) return;
+      const onMove = (ev: PointerEvent) => {
+        const delta = ev.clientY - startY;
+        const target = Math.round(
+          startViewportY + (delta / range) * term.buffer.active.baseY,
+        );
+        term.scrollToLine(target);
+      };
+      const onUp = () => window.removeEventListener("pointermove", onMove);
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp, { once: true });
+    });
+    // The thumb swallows wheel events that should scroll the terminal.
+    thumb.addEventListener(
+      "wheel",
+      (e) => {
+        e.preventDefault();
+        term.scrollLines(e.deltaY > 0 ? 3 : -3);
+      },
+      { passive: false },
+    );
+
     // OSC 7 shell integration: the backend injects a hook that reports the
     // working directory as `file://host/path` after each prompt. The
     // `followCwd` setting lets the user opt out entirely.
@@ -174,6 +231,8 @@ export default function TerminalView({
       resizeObserver.disconnect();
       inputDisposable.dispose();
       scroll.dispose();
+      scrollbarDisposables.forEach((d) => d.dispose());
+      track.remove();
       if (sessionIdRef.current) clearTermStats(sessionIdRef.current);
       term.dispose();
       termRef.current = null;

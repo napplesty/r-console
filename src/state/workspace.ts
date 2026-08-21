@@ -92,8 +92,14 @@ useAppStore.subscribe((state, prev) => {
   }, 1000);
 });
 
+/** Guard against double restore (StrictMode double-mounts effects in dev). */
+let restoreStarted = false;
+
 /** Restore the workspace snapshot on app start. */
 export async function restoreWorkspace(): Promise<void> {
+  // React StrictMode mounts effects twice in dev; restore must run once.
+  if (restoreStarted) return;
+  restoreStarted = true;
   const raw = await invoke<string | null>("workspace_load").catch(() => null);
   if (!raw) return;
   let snap: WorkspaceSnapshot;
