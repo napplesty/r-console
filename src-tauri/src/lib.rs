@@ -11,22 +11,6 @@ mod workspace;
 
 use session::SharedSessionManager;
 
-/// TEMP TRACE: append a frontend trace line to ~/.r-console/trace.log so
-/// the duplicate-tab bug can be diagnosed without devtools access.
-#[tauri::command]
-fn trace_log(line: String) {
-    use std::io::Write;
-    let Ok(dir) = paths::data_dir() else { return };
-    let Ok(mut f) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(dir.join("trace.log"))
-    else {
-        return;
-    };
-    let _ = writeln!(f, "{line}");
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Start the interactive (single-thread) and transfer (thread-pool)
@@ -69,7 +53,6 @@ pub fn run() {
             credentials::credential_delete,
             workspace::workspace_save,
             workspace::workspace_load,
-            trace_log,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

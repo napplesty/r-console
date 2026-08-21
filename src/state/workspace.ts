@@ -120,11 +120,7 @@ let restoreStarted = false;
 export async function restoreWorkspace(): Promise<void> {
   // React StrictMode mounts effects twice in dev; restore must run once.
   // The tabs check also covers HMR, which resets module state.
-  if (restoreStarted || useAppStore.getState().tabs.length > 0) {
-    console.debug("[trace] restoreWorkspace skipped (already ran or tabs exist)");
-    invoke("trace_log", { line: "[trace] restoreWorkspace skipped" }).catch(() => {});
-    return;
-  }
+  if (restoreStarted || useAppStore.getState().tabs.length > 0) return;
   restoreStarted = true;
   const raw = await invoke<string | null>("workspace_load").catch(() => null);
   if (!raw) return;
@@ -135,10 +131,6 @@ export async function restoreWorkspace(): Promise<void> {
     console.warn("Ignoring unparseable workspace snapshot");
     return;
   }
-  console.debug(`[trace] restoreWorkspace: snapshot has ${snap.tabs?.length ?? 0} tabs`);
-  invoke("trace_log", {
-    line: `[trace] restoreWorkspace: snapshot has ${snap.tabs?.length ?? 0} tabs`,
-  }).catch(() => {});
   if (!Array.isArray(snap.tabs) || snap.tabs.length === 0) return;
 
   // Defend against polluted snapshots (e.g. written by an older build with
