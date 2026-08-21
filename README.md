@@ -2,6 +2,22 @@
 
 A cross-platform, modern terminal and remote session manager — think MobaXterm, but built with Tauri 2 + React, with a Rust core for performance.
 
+[![release](https://img.shields.io/github/v/release/napplesty/r-console)](https://github.com/napplesty/r-console/releases/latest)
+
+## Download
+
+Grab the latest installer from [**Releases → latest**](https://github.com/napplesty/r-console/releases/latest):
+
+| Platform | File |
+|----------|------|
+| Windows  | `*-setup.exe` (NSIS installer; `.msi` also available) |
+| macOS    | `*.dmg` (Apple Silicon) |
+| Linux    | `*.AppImage` (portable, auto-updates), `*.deb`, `*.rpm` |
+
+Windows, macOS and AppImage builds update themselves automatically (Help → "Check for updates…", or the ⌘K palette). deb/rpm installs update via the package manager.
+
+Unsigned builds for now: on Windows click through SmartScreen ("More info → Run anyway"); on macOS right-click the app → Open the first time.
+
 ## Features
 
 - **SSH sessions** — built on [russh](https://github.com/Eugeny/russh), with support for password / public-key auth and `~/.ssh/config` import
@@ -13,6 +29,7 @@ A cross-platform, modern terminal and remote session manager — think MobaXterm
 - **Credential vault** — passwords encrypted at rest with Argon2id + AES-256-GCM, unlocked with a master password
 - **Status bar** — live latency, remote CPU / memory / disk usage, SFTP transfer progress
 - **Workspace restore** — reopen your tabs and sessions where you left off
+- **Auto-update** — signed in-app updates from GitHub Releases (Windows / macOS / AppImage)
 - **Theming** — several built-in themes (Tokyo Night, GitHub Dark, Solarized, ...), command palette (⌘K), customizable terminal scrollback
 
 ## Tech stack
