@@ -3,18 +3,24 @@
  *
  * The frontend owns mouse behavior; tmux runs with `mouse off`. Wheel
  * events are intercepted before xterm sees them and translated into tmux
- * copy-mode scroll commands over a dedicated control channel, so scrolling
- * through remote history feels like a plain SSH session while text
- * selection stays fully native (no Shift needed).
+ * copy-mode scroll commands, so scrolling through remote history feels
+ * like a plain SSH session while text selection stays fully native (no
+ * Shift needed).
  *
- * Note: xterm's own screen/mouse state is useless behind tmux — tmux keeps
- * the outer terminal in the alternate screen permanently and swallows the
- * inner app's mouse reporting. So the wheel ALWAYS drives copy-mode scroll
- * here; pager-style "alternate scroll" cannot be detected from outside.
+ * Transport: commands go over a persistent per-connection control channel
+ * (a shell loop executing one `tmux` line each), fire-and-forget — no
+ * channel/shell setup per batch, which is what made scrolling laggy.
  *
- * Corner cases handled here:
- *  - copy-mode state is tracked optimistically and re-synced on errors
- *    (copy-mode -e auto-exits at the bottom; reconnects reset the view).
+ * Protocol: every flush sends `copy-mode -e -t NAME ; send-keys -X -N n
+ * scroll-{up,down}`. Entering copy-mode while already in it is a silent
+ * no-op in tmux (cmd-copy-mode.c returns success without touching the
+ * view), and `-e` auto-exits at the bottom, so the controller needs no
+ * state synchronization with the server.
+ *
+ * Note: xterm's own screen/mouse state is useless behind tmux — tmux
+ * keeps the outer terminal in the alternate screen permanently and
+ * swallows the inner app's mouse reporting — so the wheel ALWAYS drives
+ * copy-mode scroll here.
  */
 import { invoke } from "@tauri-apps/api/core";
 
@@ -22,16 +28,19 @@ import { invoke } from "@tauri-apps/api/core";
 const PX_PER_LINE = 33;
 /** Lines per "page" for page-mode wheel deltas. */
 const LINES_PER_PAGE = 10;
+/** Wheel batches are flushed at most this often; deltas coalesce between
+ * flushes, so fast scrolling scrolls more lines per command. */
+const FLUSH_MS = 40;
 
 export class TmuxScrollController {
-  /** Whether we believe tmux is in copy-mode; re-synced on command errors. */
+  /** Conservative copy-mode hint for input handling: true after any scroll
+   * until we cancel; a stale true only costs a harmless extra cancel. */
   private scrolled = false;
   /** Accumulated wheel lines not yet sent (positive = up into history). */
   private pending = 0;
   /** Sub-line wheel remainder carried between events. */
   private fraction = 0;
-  /** One control command in flight at a time; batches coalesce. */
-  private inFlight = false;
+  private timer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     private readonly getConnKey: () => string | undefined,
@@ -60,73 +69,62 @@ export class TmuxScrollController {
    */
   handleWheel(e: WheelEvent): boolean {
     if (!this.getConnKey() || !this.getTmuxSession()) return false;
-
     const lines = this.linesOf(e);
     if (lines === 0) return true;
-
+    const idle = this.pending === 0 && this.timer === null;
     this.pending += lines;
-    void this.pump();
+    if (idle) this.flush(); // first tick responds immediately
+    this.scheduleFlush();
     return true;
   }
 
-  /** Flush accumulated wheel lines to tmux, one control command at a time. */
-  private async pump(): Promise<void> {
-    if (this.inFlight || this.pending === 0) return;
+  private scheduleFlush(): void {
+    if (this.timer !== null) return;
+    this.timer = setTimeout(() => {
+      this.timer = null;
+      if (this.pending !== 0) {
+        this.flush();
+        this.scheduleFlush();
+      }
+    }, FLUSH_MS);
+  }
+
+  /** Send one tmux command line over the control channel. */
+  private send(line: string): void {
     const connKey = this.getConnKey();
-    const name = this.getTmuxSession();
-    if (!connKey || !name) {
-      this.pending = 0;
-      return;
-    }
+    if (!connKey) return;
+    invoke("tmux_control_send", { connKey, line }).catch((err) =>
+      console.warn("[tmux-scroll] control write failed:", err),
+    );
+  }
+
+  private flush(): void {
     const n = this.pending;
     this.pending = 0;
-    this.inFlight = true;
-    const scroll = `send-keys -t ${name} -X -N ${Math.abs(n)} ${
-      n > 0 ? "scroll-up" : "scroll-down"
-    }`;
-    try {
-      if (this.scrolled) {
-        // `-e` auto-exits copy-mode when scrolling back to the bottom.
-        await invoke("tmux_control", { connKey, args: scroll });
-      } else {
-        await invoke("tmux_control", {
-          connKey,
-          args: `copy-mode -e -t ${name} \\; ${scroll}`,
-        });
-      }
-      this.scrolled = true;
-    } catch (err) {
-      console.warn("[tmux-scroll] control command failed:", err);
-      if (this.scrolled) {
-        // Bare scroll failed: not actually in copy-mode (auto-exited at the
-        // bottom, or a reconnect reset the view). Re-enter next batch.
-        this.scrolled = false;
-      } else {
-        // Entry failed: either already in copy-mode (older tmux rejects a
-        // second `copy-mode`) or tmux is gone. Probe with the bare scroll.
-        try {
-          await invoke("tmux_control", { connKey, args: scroll });
-          this.scrolled = true;
-        } catch (err2) {
-          console.warn("[tmux-scroll] re-sync probe failed:", err2);
-          this.scrolled = false;
-        }
-      }
-    }
-    this.inFlight = false;
-    if (this.pending !== 0) void this.pump();
+    if (n === 0) return;
+    const name = this.getTmuxSession();
+    if (!name) return;
+    this.scrolled = true;
+    this.send(
+      `copy-mode -e -t ${name} \\; send-keys -t ${name} -X -N ${Math.abs(n)} ${
+        n > 0 ? "scroll-up" : "scroll-down"
+      }`,
+    );
   }
 
   /** Leave copy-mode before forwarding typed input to the shell. */
-  async exitCopyMode(): Promise<void> {
+  exitCopyMode(): void {
     if (!this.scrolled) return;
-    const connKey = this.getConnKey();
-    const name = this.getTmuxSession();
     this.scrolled = false;
-    if (!connKey || !name) return;
-    await invoke("tmux_control", {
-      connKey,
-      args: `send-keys -t ${name} -X cancel`,
-    }).catch(() => {});
+    const name = this.getTmuxSession();
+    if (name) this.send(`send-keys -t ${name} -X cancel`);
+  }
+
+  /** Stop the flush timer (pane unmount). */
+  dispose(): void {
+    if (this.timer !== null) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
   }
 }

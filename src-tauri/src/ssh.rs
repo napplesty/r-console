@@ -247,19 +247,6 @@ impl SshConnection {
         Ok(self.exec_full(command).await?.0)
     }
 
-    /// Like `exec`, but fails when the command exits non-zero, returning the
-    /// collected (stderr-inclusive) output as the error message.
-    pub async fn exec_checked(&self, command: &str) -> Result<String, String> {
-        let (out, status) = self.exec_full(command).await?;
-        match status {
-            Some(0) | None => Ok(out),
-            Some(code) => Err(format!(
-                "Command exited with status {code}: {}",
-                out.trim()
-            )),
-        }
-    }
-
     /// Single-round-trip latency probe: an SSH keepalive ping, waiting for
     /// the server's pong. Unlike timing an exec, this excludes channel and
     /// remote shell setup, so it tracks the actual link RTT.
@@ -305,6 +292,26 @@ impl SshConnection {
             }
         }
         Ok((out, status))
+    }
+
+    /// Open a long-lived exec channel running `command` (used for the
+    /// per-connection tmux control loop).
+    pub async fn open_exec_channel(
+        &self,
+        command: &str,
+    ) -> Result<russh::Channel<russh::client::Msg>, String> {
+        let channel = self
+            .handle
+            .lock()
+            .await
+            .channel_open_session()
+            .await
+            .map_err(|e| format!("Failed to open exec channel: {e}"))?;
+        channel
+            .exec(true, command)
+            .await
+            .map_err(|e| format!("Failed to exec command: {e}"))?;
+        Ok(channel)
     }
 
     /// Get (or lazily establish) the SFTP session on this connection.

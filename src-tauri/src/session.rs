@@ -7,10 +7,12 @@
 
 use crate::local_pty::LocalPty;
 use crate::ssh::{SftpEntry, SshConnectConfig, SshConnection, SshShell};
+use russh::ChannelMsg;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, State, WebviewWindow};
+use tokio::sync::mpsc;
 
 enum SessionKind {
     Local(LocalPty),
@@ -42,6 +44,11 @@ pub struct SessionManager {
     /// Established SSH connections keyed by conn_key; multiple tabs
     /// multiplex over a single TCP connection.
     ssh_conns: HashMap<String, Arc<SshConnection>>,
+    /// Long-lived tmux control channels keyed by conn_key: a single exec
+    /// channel running a shell loop that executes one tmux command per
+    /// stdin line, so high-frequency control traffic (wheel scrolling)
+    /// avoids channel + remote shell setup per command.
+    tmux_ctrl: HashMap<String, mpsc::Sender<String>>,
     next_id: u64,
 }
 
@@ -195,21 +202,87 @@ pub struct SftpDirListing {
     pub entries: Vec<SftpEntry>,
 }
 
-/// Run a tmux control command on the connection (`tmux <args>`), used by the
-/// frontend scroll controller of persistent sessions. The session name was
-/// sanitized at spawn; args are assembled by the frontend from fixed
-/// templates, never free-form user text.
+/// Shell loop run on the control channel: one tmux command per stdin line.
+/// Commands are fixed frontend templates built from validated session
+/// names; `eval` re-parses the tmux-level `\;` separators.
+const TMUX_CTRL_SCRIPT: &str =
+    "while IFS= read -r line; do eval \"tmux $line\"; done";
+
+/// Queue one tmux command line onto the connection's persistent control
+/// channel, creating the channel on first use.
+///
+/// Fire-and-forget by design: the scroll protocol is idempotent (entering
+/// copy-mode while already in it is a silent no-op in tmux), so neither a
+/// reply nor an exit status is needed, and the driver simply drains the
+/// channel's output to keep the SSH window from filling.
 #[tauri::command]
-pub async fn tmux_control(
+pub async fn tmux_control_send(
     state: State<'_, SharedSessionManager>,
     conn_key: String,
-    args: String,
-) -> Result<String, String> {
-    let conn = get_conn(&state, &conn_key)?;
-    // Checked: tmux reports usage/state errors (e.g. "not in copy-mode")
-    // via exit status, and the frontend relies on failures to re-sync its
-    // optimistic copy-mode tracking.
-    conn.exec_checked(&format!("tmux {args}")).await
+    line: String,
+) -> Result<(), String> {
+    let tx = {
+        let mgr = state.lock().map_err(|e| e.to_string())?;
+        mgr.tmux_ctrl
+            .get(&conn_key)
+            .filter(|tx| !tx.is_closed())
+            .cloned()
+    };
+    let tx = match tx {
+        Some(tx) => tx,
+        None => {
+            let conn = get_conn(&state, &conn_key)?;
+            let channel = conn.open_exec_channel(TMUX_CTRL_SCRIPT).await?;
+            let (tx, rx) = mpsc::channel::<String>(256);
+            spawn_tmux_control_driver(channel, rx, state.inner().clone(), &conn_key);
+            let mut mgr = state.lock().map_err(|e| e.to_string())?;
+            // A concurrent caller may have raced us; keep the first channel.
+            mgr.tmux_ctrl.entry(conn_key).or_insert(tx).clone()
+        }
+    };
+    tx.send(line)
+        .await
+        .map_err(|_| "tmux control channel is closed".to_string())
+}
+
+/// Pump queued command lines into the control channel while draining its
+/// output. Runs on the interactive runtime; when the channel dies, the map
+/// entry is dropped so the next command opens a fresh one.
+fn spawn_tmux_control_driver(
+    mut channel: russh::Channel<russh::client::Msg>,
+    mut rx: mpsc::Receiver<String>,
+    state: SharedSessionManager,
+    conn_key: &str,
+) {
+    let conn_key = conn_key.to_string();
+    crate::runtime::interactive().spawn(async move {
+        loop {
+            tokio::select! {
+                line = rx.recv() => match line {
+                    Some(mut l) => {
+                        l.push('\n');
+                        if channel.data_bytes(l).await.is_err() {
+                            break;
+                        }
+                    }
+                    None => break,
+                },
+                msg = channel.wait() => match msg {
+                    Some(ChannelMsg::Data { .. })
+                    | Some(ChannelMsg::ExtendedData { .. }) => {}
+                    None | Some(ChannelMsg::Close) => break,
+                    _ => {}
+                },
+            }
+        }
+        // Drop the map entry only if it is still this (now dead) channel —
+        // a reconnect may already have replaced it.
+        if let Ok(mut mgr) = state.lock() {
+            if mgr.tmux_ctrl.get(&conn_key).is_some_and(|tx| tx.is_closed()) {
+                mgr.tmux_ctrl.remove(&conn_key);
+            }
+        }
+    });
 }
 
 #[tauri::command]

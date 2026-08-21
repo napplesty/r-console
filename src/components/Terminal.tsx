@@ -164,19 +164,16 @@ export default function TerminalView({
     const inputDisposable = term.onData((data) => {
       // Typing while scrolled into tmux history must leave copy-mode first,
       // or the keystrokes would drive copy-mode bindings instead of the
-      // shell.
-      if (scroll.isScrolled()) {
-        void scroll
-          .exitCopyMode()
-          .then(() => useAppStore.getState().sendInput(tabId, pane.id, data));
-      } else {
-        useAppStore.getState().sendInput(tabId, pane.id, data);
-      }
+      // shell. The cancel rides the same control channel as the scrolls, so
+      // it is ordered after them.
+      scroll.exitCopyMode();
+      useAppStore.getState().sendInput(tabId, pane.id, data);
     });
 
     return () => {
       resizeObserver.disconnect();
       inputDisposable.dispose();
+      scroll.dispose();
       if (sessionIdRef.current) clearTermStats(sessionIdRef.current);
       term.dispose();
       termRef.current = null;

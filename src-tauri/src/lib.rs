@@ -36,7 +36,7 @@ pub fn run() {
             session::sftp_upload,
             session::sftp_read_text,
             session::sftp_write_text,
-            session::tmux_control,
+            session::tmux_control_send,
             sysmon::sys_stats,
             config::saved_sessions_list,
             config::saved_sessions_save,
