@@ -8,7 +8,7 @@ import {
   mdiViewSplitHorizontal,
   mdiViewSplitVertical,
 } from "@mdi/js";
-import { activePane, useAppStore } from "../store";
+import { activePane, useAppStore } from "../state/store";
 import {
   openLocalTab,
   resolveSavedSessionConfig,
@@ -16,10 +16,10 @@ import {
   splitTabWithLocal,
   splitTabWithSsh,
   sshConfigAsSaved,
-} from "../sessions";
-import { THEMES } from "../themes";
+} from "../state/sessions";
+import { THEMES } from "../lib/themes";
 import ConnectDialog from "./ConnectDialog";
-import type { SavedSession, SplitDirection } from "../types";
+import type { SavedSession, SplitDirection } from "../lib/types";
 
 /** Where the split-target dropdown is anchored, and for which direction. */
 interface SplitMenuState {

@@ -10,7 +10,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useAppStore } from "./store";
 import { attemptReconnect, spawnLocalPane } from "./sessions";
-import type { Pane, SavedSession, SplitDirection, TabKind } from "./types";
+import type { Pane, SavedSession, SplitDirection, TabKind } from "../lib/types";
 
 interface PersistedPane {
   kind: TabKind;

@@ -6,8 +6,8 @@ import type {
   SplitDirection,
   SshConfigHost,
   Tab,
-} from "./types";
-import { DEFAULT_THEME_ID, THEMES } from "./themes";
+} from "../lib/types";
+import { DEFAULT_THEME_ID, THEMES } from "../lib/themes";
 
 const THEME_STORAGE_KEY = "r-console-theme";
 const SCROLLBACK_STORAGE_KEY = "r-console-scrollback";

@@ -9,16 +9,16 @@ import {
   mdiViewSplitHorizontal,
   mdiViewSplitVertical,
 } from "@mdi/js";
-import { useAppStore } from "../store";
+import { useAppStore } from "../state/store";
 import {
   openLocalTab,
   splitActivePane,
   sshConfigAsSaved,
   tryConnectSaved,
-} from "../sessions";
-import { THEMES } from "../themes";
+} from "../state/sessions";
+import { THEMES } from "../lib/themes";
 import ConnectDialog from "./ConnectDialog";
-import type { SavedSession } from "../types";
+import type { SavedSession } from "../lib/types";
 
 interface PaletteItem {
   id: string;

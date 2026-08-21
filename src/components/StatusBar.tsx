@@ -3,8 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import MdiIcon from "@mdi/react";
 import { mdiCircle, mdiDownload, mdiUpload } from "@mdi/js";
-import { activePane, useAppStore } from "../store";
-import type { SftpProgress, SysStats } from "../types";
+import { activePane, useAppStore } from "../state/store";
+import type { SftpProgress, SysStats } from "../lib/types";
 
 function formatGb(kb: number): string {
   return (kb / 1024 / 1024).toFixed(1);

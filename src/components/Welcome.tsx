@@ -1,10 +1,10 @@
 import { useState } from "react";
 import MdiIcon from "@mdi/react";
 import { mdiConsole, mdiConsoleLine, mdiSsh } from "@mdi/js";
-import { useAppStore } from "../store";
-import { openLocalTab, sshConfigAsSaved, tryConnectSaved } from "../sessions";
+import { useAppStore } from "../state/store";
+import { openLocalTab, sshConfigAsSaved, tryConnectSaved } from "../state/sessions";
 import ConnectDialog from "./ConnectDialog";
-import type { SavedSession } from "../types";
+import type { SavedSession } from "../lib/types";
 
 const IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform);
 const MOD = IS_MAC ? "⌘" : "Ctrl+";

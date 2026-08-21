@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { useAppStore } from "../store";
-import { settleVaultUnlock } from "../vault";
+import { useAppStore } from "../state/store";
+import { settleVaultUnlock } from "../state/vault";
 
 interface VaultStatus {
   initialized: boolean;

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { monaco } from "../monaco";
-import { useAppStore } from "../store";
-import { getTheme } from "../themes";
+import { monaco } from "../lib/monaco";
+import { useAppStore } from "../state/store";
+import { getTheme } from "../lib/themes";
 
 interface FileViewerProps {
   connKey: string;

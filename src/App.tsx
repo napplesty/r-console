@@ -1,8 +1,8 @@
 import { useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { activePane, useAppStore } from "./store";
-import { openLocalTab, scheduleReconnect, splitActivePane } from "./sessions";
-import { restoreWorkspace } from "./workspace";
+import { activePane, useAppStore } from "./state/store";
+import { openLocalTab, scheduleReconnect, splitActivePane } from "./state/sessions";
+import { restoreWorkspace } from "./state/workspace";
 import Sidebar from "./components/Sidebar";
 import TabBar from "./components/TabBar";
 import TerminalView from "./components/Terminal";

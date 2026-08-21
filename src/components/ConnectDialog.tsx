@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { SavedSession, SplitDirection, SshConnectConfig } from "../types";
-import { openSshTab, splitTabWithSsh } from "../sessions";
-import { useAppStore } from "../store";
-import { withVaultRetry } from "../vault";
+import type { SavedSession, SplitDirection, SshConnectConfig } from "../lib/types";
+import { openSshTab, splitTabWithSsh } from "../state/sessions";
+import { useAppStore } from "../state/store";
+import { withVaultRetry } from "../state/vault";
 
 interface ConnectDialogProps {
   /** When set, the form is prefilled from this saved session. */

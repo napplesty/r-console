@@ -8,7 +8,7 @@ import type {
   SshConfigHost,
   SshConnectConfig,
   SshSessionInfo,
-} from "./types";
+} from "../lib/types";
 
 /** Short unique tmux session name (sanitized server-side before use). */
 function genTmuxSessionName(): string {

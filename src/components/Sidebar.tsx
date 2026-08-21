@@ -8,10 +8,10 @@ import {
   mdiPinOutline,
   mdiPlus,
 } from "@mdi/js";
-import { useAppStore } from "../store";
-import { openLocalTab, sshConfigAsSaved, tryConnectSaved } from "../sessions";
+import { useAppStore } from "../state/store";
+import { openLocalTab, sshConfigAsSaved, tryConnectSaved } from "../state/sessions";
 import ConnectDialog from "./ConnectDialog";
-import type { SavedSession } from "../types";
+import type { SavedSession } from "../lib/types";
 
 export default function Sidebar() {
   const savedSessions = useAppStore((s) => s.savedSessions);

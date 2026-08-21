@@ -13,7 +13,7 @@ import {
   mdiRefresh,
   mdiUpload,
 } from "@mdi/js";
-import type { SftpDirListing, SftpEntry } from "../types";
+import type { SftpDirListing, SftpEntry } from "../lib/types";
 
 // Monaco is heavy (~3 MB): split it out of the main bundle and load it only
 // when a file is actually opened.

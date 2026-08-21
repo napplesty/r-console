@@ -4,13 +4,13 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { useAppStore } from "../store";
-import { getTheme } from "../themes";
-import { clearTermStats, recordTermEvent, recordTermWrite } from "../perf";
-import { cancelReconnect, retryReconnect } from "../sessions";
-import { TmuxScrollController } from "../tmuxScroll";
+import { useAppStore } from "../state/store";
+import { getTheme } from "../lib/themes";
+import { clearTermStats, recordTermEvent, recordTermWrite } from "../lib/perf";
+import { cancelReconnect, retryReconnect } from "../state/sessions";
+import { TmuxScrollController } from "../lib/tmuxScroll";
 import ConnectDialog from "./ConnectDialog";
-import type { Pane } from "../types";
+import type { Pane } from "../lib/types";
 import "@xterm/xterm/css/xterm.css";
 
 interface TerminalViewProps {
