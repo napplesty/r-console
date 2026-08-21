@@ -140,9 +140,8 @@ export default function TerminalView({
     const scroll = new TmuxScrollController(
       () => paneRef.current.connKey,
       () => paneRef.current.tmuxSession,
-      (data) => useAppStore.getState().sendInput(tabId, pane.id, data),
     );
-    term.attachCustomWheelEventHandler((ev) => !scroll.handleWheel(ev, term));
+    term.attachCustomWheelEventHandler((ev) => !scroll.handleWheel(ev));
 
     const syncSize = () => {
       // Hidden (inactive) containers report zero size; skip then.

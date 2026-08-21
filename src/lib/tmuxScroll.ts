@@ -7,25 +7,21 @@
  * through remote history feels like a plain SSH session while text
  * selection stays fully native (no Shift needed).
  *
+ * Note: xterm's own screen/mouse state is useless behind tmux — tmux keeps
+ * the outer terminal in the alternate screen permanently and swallows the
+ * inner app's mouse reporting. So the wheel ALWAYS drives copy-mode scroll
+ * here; pager-style "alternate scroll" cannot be detected from outside.
+ *
  * Corner cases handled here:
- *  - apps with mouse reporting (vim, htop) keep owning the mouse;
- *  - alternate-screen apps without mouse (less) get iTerm-style
- *    "alternate scroll": wheel becomes arrow keys;
  *  - copy-mode state is tracked optimistically and re-synced on errors
  *    (copy-mode -e auto-exits at the bottom; reconnects reset the view).
  */
 import { invoke } from "@tauri-apps/api/core";
-import type { Terminal } from "@xterm/xterm";
 
 /** Pixel delta roughly equal to one text line, for wheel normalization. */
 const PX_PER_LINE = 33;
 /** Lines per "page" for page-mode wheel deltas. */
 const LINES_PER_PAGE = 10;
-/** Arrow-key sequences for alternate scroll (normal / application mode). */
-const KEY_UP = "\x1b[A";
-const KEY_DOWN = "\x1b[B";
-const KEY_UP_APP = "\x1bOA";
-const KEY_DOWN_APP = "\x1bOB";
 
 export class TmuxScrollController {
   /** Whether we believe tmux is in copy-mode; re-synced on command errors. */
@@ -40,7 +36,6 @@ export class TmuxScrollController {
   constructor(
     private readonly getConnKey: () => string | undefined,
     private readonly getTmuxSession: () => string | undefined,
-    private readonly sendInput: (data: string) => void,
   ) {}
 
   isScrolled(): boolean {
@@ -63,28 +58,11 @@ export class TmuxScrollController {
    * Consume a wheel event. Returns true when the event was handled here and
    * xterm must not process it further.
    */
-  handleWheel(e: WheelEvent, term: Terminal): boolean {
+  handleWheel(e: WheelEvent): boolean {
     if (!this.getConnKey() || !this.getTmuxSession()) return false;
-    // Applications that requested mouse reporting (vim, htop) own the mouse.
-    if (term.modes.mouseTrackingMode !== "none") return false;
 
     const lines = this.linesOf(e);
     if (lines === 0) return true;
-
-    if (term.buffer.active.type === "alternate") {
-      // Alternate scroll for pagers like less: wheel as arrow keys.
-      const appMode = term.modes.applicationCursorKeysMode;
-      const key =
-        lines > 0
-          ? appMode
-            ? KEY_UP_APP
-            : KEY_UP
-          : appMode
-            ? KEY_DOWN_APP
-            : KEY_DOWN;
-      this.sendInput(key.repeat(Math.abs(lines)));
-      return true;
-    }
 
     this.pending += lines;
     void this.pump();
