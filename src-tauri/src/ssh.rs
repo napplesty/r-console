@@ -406,6 +406,10 @@ impl SshShell {
             .await
             .map_err(|e| format!("Failed to request PTY: {e}"))?;
 
+        // Shell integration is only injected into sessions we CREATE —
+        // see the persistent branch below.
+        let mut inject_shell_init = !persistent;
+
         if persistent {
             let name = tmux_session.as_deref().unwrap_or("rc-main");
             // Names come from the frontend; sanitize before embedding in a
@@ -423,23 +427,42 @@ impl SshShell {
                         .to_string(),
                 );
             }
-            // Attach-or-create, then make tmux feel native: no status bar,
-            // a large history, OSC sequences (cwd reporting) passed through
-            // to the outer terminal. Mouse stays OFF on purpose: wheel and
+            // Probe first so we know whether this is an attach or a create:
+            // the shell-integration snippet ends with `clear`, and injecting
+            // it into a reattached session would wipe the visible screen
+            // (making a resumed session look like a fresh window) and
+            // duplicate the prompt hooks.
+            let exists = conn
+                .exec(&format!(
+                    "tmux has-session -t {name} 2>/dev/null && echo yes"
+                ))
+                .await?
+                .trim()
+                == "yes";
+            // On create, make tmux feel native: no status bar, a large
+            // history, OSC sequences (cwd reporting) passed through to the
+            // outer terminal. Mouse stays OFF on purpose: wheel and
             // selection are owned by the frontend, which drives tmux
-            // copy-mode through the tmux_control command — selection then
+            // copy-mode through the control channel — selection then
             // behaves like a plain SSH session. `-q` silences
             // unknown-option errors on older tmux versions.
-            let cmd = format!(
-                "tmux new-session -A -s {name} \\; set -q -t {name} status off \\; set -q -t {name} mouse off \\; set -q -t {name} history-limit 50000 \\; set -q -t {name} allow-passthrough on"
-            );
+            let cmd = if exists {
+                format!("tmux attach-session -t {name}")
+            } else {
+                format!(
+                    "tmux new-session -s {name} \\; set -q -t {name} status off \\; set -q -t {name} mouse off \\; set -q -t {name} history-limit 50000 \\; set -q -t {name} allow-passthrough on"
+                )
+            };
             channel
                 .exec(true, cmd.as_str())
                 .await
                 .map_err(|e| format!("Failed to start tmux: {e}"))?;
-            // Give tmux a moment to spawn the pane shell before injecting
-            // the shell-integration snippet, or the keystrokes can be lost.
-            tokio::time::sleep(Duration::from_millis(300)).await;
+            if !exists {
+                inject_shell_init = true;
+                // Give tmux a moment to spawn the pane shell before injecting
+                // the shell-integration snippet, or the keystrokes can be lost.
+                tokio::time::sleep(Duration::from_millis(300)).await;
+            }
         } else {
             channel
                 .request_shell(true)
@@ -449,7 +472,9 @@ impl SshShell {
 
         // Shell integration: report the working directory via OSC 7 so the
         // SFTP panel can follow the terminal. Best-effort; ignore failures.
-        let _ = channel.data_bytes(crate::session::SHELL_INIT).await;
+        if inject_shell_init {
+            let _ = channel.data_bytes(crate::session::SHELL_INIT).await;
+        }
 
         let (tx, mut rx) = mpsc::channel::<ShellInput>(INPUT_QUEUE);
         let data_event = format!("session-data-{}", session_id);
