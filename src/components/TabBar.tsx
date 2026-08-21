@@ -153,6 +153,20 @@ export default function TabBar() {
               {tab.title}
             </span>
           )}
+          {/* Persistent (tmux-backed) panes get a subtle badge; the tooltip
+              lists the remote tmux session names. */}
+          {tab.panes.some((p) => p.tmuxSession) && (
+            <span
+              className="shrink-0 rounded border border-(--accent) px-1 text-[10px] leading-4 text-(--accent)"
+              title={`Persistent tmux: ${[
+                ...new Set(
+                  tab.panes.map((p) => p.tmuxSession).filter(Boolean),
+                ),
+              ].join(", ")}`}
+            >
+              tmux
+            </span>
+          )}
           {tab.panes.length > 1 && (
             <span className="text-xs text-(--text-dim)">
               ×{tab.panes.length}
