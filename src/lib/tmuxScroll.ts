@@ -117,7 +117,8 @@ export class TmuxScrollController {
         });
       }
       this.scrolled = true;
-    } catch {
+    } catch (err) {
+      console.warn("[tmux-scroll] control command failed:", err);
       if (this.scrolled) {
         // Bare scroll failed: not actually in copy-mode (auto-exited at the
         // bottom, or a reconnect reset the view). Re-enter next batch.
@@ -128,7 +129,8 @@ export class TmuxScrollController {
         try {
           await invoke("tmux_control", { connKey, args: scroll });
           this.scrolled = true;
-        } catch {
+        } catch (err2) {
+          console.warn("[tmux-scroll] re-sync probe failed:", err2);
           this.scrolled = false;
         }
       }

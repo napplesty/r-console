@@ -43,16 +43,15 @@ pub async fn sys_stats(
     parse_stats(&out)
 }
 
-/// Round-trip latency of the connection, measured by timing a no-op exec.
+/// Round-trip latency of the connection, measured with a protocol-level
+/// keepalive ping (a single RTT, no channel or remote shell setup).
 #[tauri::command]
 pub async fn ssh_ping(
     state: State<'_, SharedSessionManager>,
     conn_key: String,
 ) -> Result<u64, String> {
     let conn = get_conn(&state, &conn_key)?;
-    let start = std::time::Instant::now();
-    conn.exec("true").await?;
-    Ok(start.elapsed().as_millis() as u64)
+    conn.ping().await
 }
 
 fn parse_stats(out: &str) -> Result<SysStats, String> {

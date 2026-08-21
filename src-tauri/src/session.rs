@@ -206,7 +206,10 @@ pub async fn tmux_control(
     args: String,
 ) -> Result<String, String> {
     let conn = get_conn(&state, &conn_key)?;
-    conn.exec(&format!("tmux {args}")).await
+    // Checked: tmux reports usage/state errors (e.g. "not in copy-mode")
+    // via exit status, and the frontend relies on failures to re-sync its
+    // optimistic copy-mode tracking.
+    conn.exec_checked(&format!("tmux {args}")).await
 }
 
 #[tauri::command]

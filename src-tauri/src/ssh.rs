@@ -244,6 +244,38 @@ impl SshConnection {
 
     /// Run a command on a fresh exec channel and collect its output.
     pub async fn exec(&self, command: &str) -> Result<String, String> {
+        Ok(self.exec_full(command).await?.0)
+    }
+
+    /// Like `exec`, but fails when the command exits non-zero, returning the
+    /// collected (stderr-inclusive) output as the error message.
+    pub async fn exec_checked(&self, command: &str) -> Result<String, String> {
+        let (out, status) = self.exec_full(command).await?;
+        match status {
+            Some(0) | None => Ok(out),
+            Some(code) => Err(format!(
+                "Command exited with status {code}: {}",
+                out.trim()
+            )),
+        }
+    }
+
+    /// Single-round-trip latency probe: an SSH keepalive ping, waiting for
+    /// the server's pong. Unlike timing an exec, this excludes channel and
+    /// remote shell setup, so it tracks the actual link RTT.
+    pub async fn ping(&self) -> Result<u64, String> {
+        let start = std::time::Instant::now();
+        self.handle
+            .lock()
+            .await
+            .send_ping()
+            .await
+            .map_err(|e| format!("Ping failed: {e}"))?;
+        Ok(start.elapsed().as_millis() as u64)
+    }
+
+    /// Run a command, returning its combined output and exit status.
+    async fn exec_full(&self, command: &str) -> Result<(String, Option<u32>), String> {
         let mut channel = self
             .handle
             .lock()
@@ -256,6 +288,7 @@ impl SshConnection {
             .await
             .map_err(|e| format!("Failed to exec command: {e}"))?;
         let mut out = String::new();
+        let mut status = None;
         loop {
             match channel.wait().await {
                 Some(ChannelMsg::Data { data }) => {
@@ -264,11 +297,14 @@ impl SshConnection {
                 Some(ChannelMsg::ExtendedData { data, .. }) => {
                     out.push_str(&String::from_utf8_lossy(data.as_ref()));
                 }
+                Some(ChannelMsg::ExitStatus { exit_status }) => {
+                    status = Some(exit_status);
+                }
                 None | Some(ChannelMsg::Close) => break,
                 _ => {}
             }
         }
-        Ok(out)
+        Ok((out, status))
     }
 
     /// Get (or lazily establish) the SFTP session on this connection.
