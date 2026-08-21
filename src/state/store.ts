@@ -36,8 +36,26 @@ function applyThemeAttribute(themeId: string) {
   document.documentElement.dataset.theme = themeId;
 }
 
-interface AppState {
-  tabs: Tab[];
+/**
+ * Tear down a pane's backend resources: close the shell channel, and for
+ * persistent (tmux) panes also kill the remote tmux session — closing a
+ * pane is the user's explicit "I'm done with this session", so it should
+ * not linger on the remote host. (Quitting the app does NOT go through
+ * here; those sessions survive for workspace restore.)
+ */
+function closePaneBackend(pane: Pane): void {
+  if (pane.sessionId) {
+    invoke("session_close", { sessionId: pane.sessionId }).catch(() => {});
+  }
+  if (pane.tmuxSession && pane.connKey) {
+    invoke("tmux_control_send", {
+      connKey: pane.connKey,
+      line: `kill-session -t ${pane.tmuxSession}`,
+    }).catch(() => {});
+  }
+}
+
+interface AppState {  tabs: Tab[];
   activeTabId: string | null;
   savedSessions: SavedSession[];
   sshConfigHosts: SshConfigHost[];
@@ -118,9 +136,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { tabs, activeTabId } = get();
     const tab = tabs.find((t) => t.id === id);
     if (tab) {
-      for (const pane of tab.panes) {
-        invoke("session_close", { sessionId: pane.sessionId }).catch(() => {});
-      }
+      for (const pane of tab.panes) closePaneBackend(pane);
     }
     const idx = tabs.findIndex((t) => t.id === id);
     const next = tabs.filter((t) => t.id !== id);
@@ -144,29 +160,30 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!tab) return;
     const pane = tab.panes.find((p) => p.id === paneId);
     if (!pane) return;
-    invoke("session_close", { sessionId: pane.sessionId }).catch(() => {});
-    set((s) => {
-      const cwdBySession = { ...s.cwdBySession };
-      delete cwdBySession[pane.sessionId];
-      return { cwdBySession };
-    });
     const rest = tab.panes.filter((p) => p.id !== paneId);
     if (rest.length === 0) {
+      // closeTab tears down every pane's backend, including this one.
       closeTab(tabId);
       return;
     }
-    set((s) => ({
-      tabs: s.tabs.map((t) =>
-        t.id === tabId
-          ? {
-              ...t,
-              panes: rest,
-              activePaneId:
-                t.activePaneId === paneId ? rest[0].id : t.activePaneId,
-            }
-          : t,
-      ),
-    }));
+    closePaneBackend(pane);
+    set((s) => {
+      const cwdBySession = { ...s.cwdBySession };
+      delete cwdBySession[pane.sessionId];
+      return {
+        cwdBySession,
+        tabs: s.tabs.map((t) =>
+          t.id === tabId
+            ? {
+                ...t,
+                panes: rest,
+                activePaneId:
+                  t.activePaneId === paneId ? rest[0].id : t.activePaneId,
+              }
+            : t,
+        ),
+      };
+    });
   },
 
   setActivePane: (tabId, paneId) =>
