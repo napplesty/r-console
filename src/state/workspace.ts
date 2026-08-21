@@ -1,8 +1,10 @@
 /**
- * Workspace persistence: snapshot the tab/pane layout (debounced, on every
- * change) and restore it on app start. Local panes respawn immediately;
- * SSH panes come back in "reconnecting" state and auto-reattach — with
- * persistent (tmux) sessions this restores the full remote context.
+ * Workspace persistence: snapshot the tab/pane layout and restore it on
+ * app start. The snapshot exists for quit/crash recovery only — closing a
+ * tab or pane saves immediately so it never comes back; other changes are
+ * debounced. Local panes respawn immediately; SSH panes come back in
+ * "reconnecting" state and auto-reattach — with persistent (tmux)
+ * sessions this restores the full remote context.
  *
  * Secrets are never persisted: SSH panes store a SavedSession-shaped
  * descriptor; passwords are re-resolved from the vault during reconnect.
@@ -79,17 +81,36 @@ function buildSnapshot(): WorkspaceSnapshot {
   return { tabs: persistedTabs, activeTabIndex };
 }
 
-// Persist (debounced) whenever the tab layout changes. Registered at module
-// load; the snapshot is a plain JSON string, the schema lives here only.
+// Persist whenever the tab layout changes. Registered at module load; the
+// snapshot is a plain JSON string, the schema lives here only.
+//
+// The snapshot is quit/crash recovery, so a closed tab or pane must NEVER
+// come back: layout shrinkage is saved immediately (a debounced save would
+// be lost when the user quits right after closing). Everything else —
+// title changes, reconnect status churn — is debounced.
 let persistTimer: number | undefined;
+
+function saveSnapshot() {
+  invoke("workspace_save", {
+    snapshot: JSON.stringify(buildSnapshot()),
+  }).catch((e) => console.warn("workspace_save failed:", e));
+}
+
+function paneCount(tabs: { panes: unknown[] }[]): number {
+  return tabs.reduce((n, t) => n + t.panes.length, 0);
+}
+
 useAppStore.subscribe((state, prev) => {
   if (state.tabs === prev.tabs && state.activeTabId === prev.activeTabId) return;
   window.clearTimeout(persistTimer);
-  persistTimer = window.setTimeout(() => {
-    invoke("workspace_save", {
-      snapshot: JSON.stringify(buildSnapshot()),
-    }).catch((e) => console.warn("workspace_save failed:", e));
-  }, 1000);
+  const shrunk =
+    state.tabs.length < prev.tabs.length ||
+    paneCount(state.tabs) < paneCount(prev.tabs);
+  if (shrunk) {
+    saveSnapshot();
+    return;
+  }
+  persistTimer = window.setTimeout(saveSnapshot, 1000);
 });
 
 /** Guard against double restore (StrictMode double-mounts effects in dev). */
@@ -98,7 +119,8 @@ let restoreStarted = false;
 /** Restore the workspace snapshot on app start. */
 export async function restoreWorkspace(): Promise<void> {
   // React StrictMode mounts effects twice in dev; restore must run once.
-  if (restoreStarted) return;
+  // The tabs check also covers HMR, which resets module state.
+  if (restoreStarted || useAppStore.getState().tabs.length > 0) return;
   restoreStarted = true;
   const raw = await invoke<string | null>("workspace_load").catch(() => null);
   if (!raw) return;
