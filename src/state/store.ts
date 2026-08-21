@@ -106,13 +106,20 @@ export const useAppStore = create<AppState>((set, get) => ({
   sidebarPinned: readStoredBool(SIDEBAR_PINNED_STORAGE_KEY, true),
   cwdBySession: {},
 
-  addTab: (tab) =>
+  addTab: (tab) => {
+    // TEMP TRACE: hunting duplicate-tab bug; remove after diagnosis.
+    const stack = new Error().stack ?? "";
+    console.debug(`[trace] addTab "${tab.title}" panes=${tab.panes.length}`, stack);
+    invoke("trace_log", {
+      line: `[trace] addTab "${tab.title}" panes=${tab.panes.length}\n${stack}`,
+    }).catch(() => {});
     set((s) => ({
       tabs: [...s.tabs, tab],
       activeTabId: tab.id,
       // The sidebar is mainly a launcher: auto-collapse when unpinned.
       sidebarCollapsed: s.sidebarPinned ? s.sidebarCollapsed : true,
-    })),
+    }));
+  },
 
   closeTab: (id) => {
     const { tabs, activeTabId } = get();

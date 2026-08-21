@@ -120,7 +120,11 @@ let restoreStarted = false;
 export async function restoreWorkspace(): Promise<void> {
   // React StrictMode mounts effects twice in dev; restore must run once.
   // The tabs check also covers HMR, which resets module state.
-  if (restoreStarted || useAppStore.getState().tabs.length > 0) return;
+  if (restoreStarted || useAppStore.getState().tabs.length > 0) {
+    console.debug("[trace] restoreWorkspace skipped (already ran or tabs exist)");
+    invoke("trace_log", { line: "[trace] restoreWorkspace skipped" }).catch(() => {});
+    return;
+  }
   restoreStarted = true;
   const raw = await invoke<string | null>("workspace_load").catch(() => null);
   if (!raw) return;
@@ -131,10 +135,27 @@ export async function restoreWorkspace(): Promise<void> {
     console.warn("Ignoring unparseable workspace snapshot");
     return;
   }
+  console.debug(`[trace] restoreWorkspace: snapshot has ${snap.tabs?.length ?? 0} tabs`);
+  invoke("trace_log", {
+    line: `[trace] restoreWorkspace: snapshot has ${snap.tabs?.length ?? 0} tabs`,
+  }).catch(() => {});
   if (!Array.isArray(snap.tabs) || snap.tabs.length === 0) return;
 
+  // Defend against polluted snapshots (e.g. written by an older build with
+  // the duplicate-restore bug, or by a second dev instance): two restored
+  // tabs pointing at the SAME remote tmux session are always corruption —
+  // legitimate separate tabs have distinct tmux sessions.
+  const seenTmux = new Set<string>();
   const restoredTabIds: string[] = [];
   for (const t of snap.tabs) {
+    const tabTmux = t.panes.map((p) => p.tmuxSession).find(Boolean);
+    if (tabTmux) {
+      if (seenTmux.has(tabTmux)) {
+        console.warn(`Skipping duplicate restored tab (tmux ${tabTmux})`);
+        continue;
+      }
+      seenTmux.add(tabTmux);
+    }
     const panes: Pane[] = [];
     for (const p of t.panes) {
       if (p.kind === "local") {

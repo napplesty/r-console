@@ -178,16 +178,29 @@ export function sshConfigAsSaved(h: SshConfigHost): SavedSession {
  * credentials silently and open a new tab. Returns false when credentials
  * are missing or the connect failed — the caller should then fall back to
  * the prefilled connect dialog.
+ *
+ * Repeated clicks while the vault-unlock dialog is pending would otherwise
+ * queue one connect per click (all firing when the dialog settles), so
+ * concurrent connects for the same session are deduplicated here.
  */
+const connectingSessions = new Set<string>();
+
 export async function tryConnectSaved(s: SavedSession): Promise<boolean> {
-  const config = await resolveSavedSessionConfig(s);
-  if (!config) return false;
+  const key = s.id || `${s.username}@${s.host}:${s.port}`;
+  if (connectingSessions.has(key)) return true;
+  connectingSessions.add(key);
   try {
-    await openSshTab(config, s.name, s);
-    return true;
-  } catch (err) {
-    console.error("SSH connect failed:", err);
-    return false;
+    const config = await resolveSavedSessionConfig(s);
+    if (!config) return false;
+    try {
+      await openSshTab(config, s.name, s);
+      return true;
+    } catch (err) {
+      console.error("SSH connect failed:", err);
+      return false;
+    }
+  } finally {
+    connectingSessions.delete(key);
   }
 }
 
