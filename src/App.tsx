@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { activePane, useAppStore } from "./state/store";
 import { openLocalTab, scheduleReconnect, splitActivePane } from "./state/sessions";
 import { restoreWorkspace } from "./state/workspace";
+import { checkForUpdates } from "./lib/updater";
 import Sidebar from "./components/Sidebar";
 import TabBar from "./components/TabBar";
 import TerminalView from "./components/Terminal";
@@ -42,6 +43,12 @@ function App() {
   // Restore the previous workspace (tab layout + auto-reconnect) on start.
   useEffect(() => {
     restoreWorkspace().catch((e) => console.warn("workspace restore failed:", e));
+  }, []);
+
+  // Silent update check, delayed so it doesn't compete with startup work.
+  useEffect(() => {
+    const t = window.setTimeout(() => void checkForUpdates(true), 5000);
+    return () => window.clearTimeout(t);
   }, []);
 
   // Global app shortcuts, registered in the capture phase so they also work

@@ -6,6 +6,7 @@ import {
   mdiConsole,
   mdiPalette,
   mdiSsh,
+  mdiUpdate,
   mdiViewSplitHorizontal,
   mdiViewSplitVertical,
 } from "@mdi/js";
@@ -17,6 +18,7 @@ import {
   tryConnectSaved,
 } from "../state/sessions";
 import { THEMES } from "../lib/themes";
+import { checkForUpdates } from "../lib/updater";
 import ConnectDialog from "./ConnectDialog";
 import type { SavedSession } from "../lib/types";
 
@@ -87,6 +89,12 @@ export default function CommandPalette() {
         label: "New local terminal",
         icon: mdiConsole,
         run: () => openLocalTab().catch(() => {}),
+      },
+      {
+        id: "check-updates",
+        label: "Check for updates…",
+        icon: mdiUpdate,
+        run: () => void checkForUpdates(false),
       },
     ];
     if (activeTabId) {

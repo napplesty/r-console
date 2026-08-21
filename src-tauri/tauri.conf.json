@@ -30,6 +30,15 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDg0Q0RGMDhFRjM4MTU4QTUKUldTbFdJSHpqdkROaExQSVNjZjhsM2k0TjR3REtyRngrT2RQbWlIeGxjVEI5cWs5dGNpeVk5U3MK",
+      "endpoints": [
+        "https://github.com/napplesty/r-console/releases/latest/download/latest.json"
+      ]
+    }
   }
 }
