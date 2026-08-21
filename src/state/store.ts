@@ -11,6 +11,7 @@ import { DEFAULT_THEME_ID, THEMES } from "../lib/themes";
 
 const THEME_STORAGE_KEY = "r-console-theme";
 const SCROLLBACK_STORAGE_KEY = "r-console-scrollback";
+const FOLLOW_CWD_STORAGE_KEY = "r-console-follow-cwd";
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "r-console-sidebar-collapsed";
 const SIDEBAR_PINNED_STORAGE_KEY = "r-console-sidebar-pinned";
 const DEFAULT_SCROLLBACK = 5000;
@@ -43,6 +44,8 @@ interface AppState {
   themeId: string;
   /** Terminal scrollback lines; applies to terminals opened afterwards. */
   scrollback: number;
+  /** Whether OSC 7 cwd reports update the UI (SFTP panel follows terminal). */
+  followCwd: boolean;
   /** Whether the credential vault is currently unlocked. */
   vaultUnlocked: boolean;
   /** Controls visibility of the master-password vault dialog. */
@@ -71,6 +74,7 @@ interface AppState {
   loadSshConfigHosts: () => Promise<void>;
   setThemeId: (id: string) => void;
   setScrollback: (lines: number) => void;
+  setFollowCwd: (follow: boolean) => void;
   setVaultUnlocked: (unlocked: boolean) => void;
   setVaultDialogOpen: (open: boolean) => void;
   setPaletteOpen: (open: boolean) => void;
@@ -94,6 +98,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   sshConfigHosts: [],
   themeId: initialThemeId,
   scrollback: readInitialScrollback(),
+  followCwd: readStoredBool(FOLLOW_CWD_STORAGE_KEY, true),
   vaultUnlocked: false,
   vaultDialogOpen: false,
   paletteOpen: false,
@@ -239,6 +244,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     const value = Math.max(100, Math.floor(lines));
     localStorage.setItem(SCROLLBACK_STORAGE_KEY, String(value));
     set({ scrollback: value });
+  },
+
+  setFollowCwd: (follow) => {
+    localStorage.setItem(FOLLOW_CWD_STORAGE_KEY, String(follow));
+    set({ followCwd: follow });
   },
 
   setVaultUnlocked: (unlocked) => set({ vaultUnlocked: unlocked }),

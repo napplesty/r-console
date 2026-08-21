@@ -39,6 +39,8 @@ export default function TabBar() {
   const setThemeId = useAppStore((s) => s.setThemeId);
   const scrollback = useAppStore((s) => s.scrollback);
   const setScrollback = useAppStore((s) => s.setScrollback);
+  const followCwd = useAppStore((s) => s.followCwd);
+  const setFollowCwd = useAppStore((s) => s.setFollowCwd);
   const savedSessions = useAppStore((s) => s.savedSessions);
   const sshConfigHosts = useAppStore((s) => s.sshConfigHosts);
 
@@ -220,6 +222,18 @@ export default function TabBar() {
           onChange={(e) => setScrollback(Number(e.target.value))}
           className="w-20 rounded border border-(--border) bg-transparent px-1.5 py-0.5 text-(--text-dim) outline-none focus:border-(--accent)"
         />
+      </label>
+      <label
+        className="flex shrink-0 cursor-pointer items-center gap-1 text-xs text-(--text-dim) hover:text-(--text)"
+        title="Let the SFTP panel follow the terminal's working directory (OSC 7)"
+      >
+        <input
+          type="checkbox"
+          checked={followCwd}
+          onChange={(e) => setFollowCwd(e.target.checked)}
+          className="accent-(--accent)"
+        />
+        Follow cwd
       </label>
       <select
         value={themeId}

@@ -21,8 +21,15 @@ enum SessionKind {
 /// prompt hook that reports the working directory via OSC 7, letting the UI
 /// (e.g. the SFTP panel) follow the terminal. Best-effort — unknown shells
 /// simply never report. Ends with `clear` to hide the injected command.
+///
+/// Inside tmux, raw OSC sequences are swallowed by the multiplexer, so the
+/// sequence is wrapped in a DCS passthrough (ESCs of the inner sequence
+/// doubled). This requires `allow-passthrough on` on the tmux session,
+/// which persistent sessions set at creation time.
 pub(crate) const SHELL_INIT: &str = concat!(
-    "__rc_osc7() { printf '\\033]7;file://%s%s\\033\\\\' \"$(hostname)\" \"$PWD\"; };",
+    "__rc_osc7() { if [ -n \"$TMUX\" ]; then",
+    " printf '\\033Ptmux;\\033\\033]7;file://%s%s\\007\\033\\\\' \"$(hostname)\" \"$PWD\";",
+    " else printf '\\033]7;file://%s%s\\033\\\\' \"$(hostname)\" \"$PWD\"; fi; };",
     "case \"$0\" in",
     " *zsh) autoload -Uz add-zsh-hook && add-zsh-hook precmd __rc_osc7 ;;",
     " *bash) PROMPT_COMMAND=\"${PROMPT_COMMAND:+$PROMPT_COMMAND;}__rc_osc7\" ;;",

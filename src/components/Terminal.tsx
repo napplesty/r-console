@@ -123,10 +123,11 @@ export default function TerminalView({
     enqueueRef.current = enqueue;
 
     // OSC 7 shell integration: the backend injects a hook that reports the
-    // working directory as `file://host/path` after each prompt.
+    // working directory as `file://host/path` after each prompt. The
+    // `followCwd` setting lets the user opt out entirely.
     term.parser.registerOscHandler(7, (data) => {
       const sid = sessionIdRef.current;
-      if (!sid) return true;
+      if (!sid || !useAppStore.getState().followCwd) return true;
       const m = data.match(/^file:\/\/[^/]*(\/.*)$/);
       if (m) {
         useAppStore.getState().setSessionCwd(sid, decodeURIComponent(m[1]));
