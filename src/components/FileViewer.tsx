@@ -43,7 +43,7 @@ const EXT_TO_LANGUAGE: Record<string, string> = {
   go: "go",
 };
 
-function languageForPath(remotePath: string): string {
+export function languageForPath(remotePath: string): string {
   const name = remotePath.split("/").pop() ?? "";
   if (/^dockerfile/i.test(name)) return "dockerfile";
   const ext = name.includes(".") ? (name.split(".").pop() ?? "").toLowerCase() : "";

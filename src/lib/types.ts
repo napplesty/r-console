@@ -94,8 +94,29 @@ export interface SftpProgress {
   total: number;
 }
 
-/** Remote system stats returned by the `sys_stats` command. */
-export interface SysStats {
+/** One changed file parsed from `git status --porcelain=v2`. */
+export interface GitStatusEntry {
+  path: string;
+  /** Original path for renamed/copied entries. */
+  origPath?: string | null;
+  /** Index (staged) status letter ("M"/"A"/"D"/"R"/"C"/"U"), "." = unchanged,
+   *  "?" = untracked. */
+  stagedState: string;
+  /** Worktree (unstaged) status letter, "." = unchanged. */
+  unstagedState: string;
+}
+
+/** Repo status returned by the `git_status` command. */
+export interface GitStatus {
+  /** False when the working directory is not inside a git repository. */
+  isRepo: boolean;
+  branch: string;
+  ahead: number;
+  behind: number;
+  entries: GitStatusEntry[];
+}
+
+/** Remote system stats returned by the `sys_stats` command. */export interface SysStats {
   cpuPercent: number;
   memUsedKb: number;
   memTotalKb: number;

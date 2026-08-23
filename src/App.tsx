@@ -1,13 +1,19 @@
 import { useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { activePane, useAppStore } from "./state/store";
-import { openLocalTab, scheduleReconnect, splitActivePane } from "./state/sessions";
+import {
+  initReconnectTriggers,
+  openLocalTab,
+  scheduleReconnect,
+  splitActivePane,
+} from "./state/sessions";
 import { restoreWorkspace } from "./state/workspace";
 import { checkForUpdates } from "./lib/updater";
 import Sidebar from "./components/Sidebar";
 import TabBar from "./components/TabBar";
 import TerminalView from "./components/Terminal";
 import SftpPanel from "./components/SftpPanel";
+import GitPanel from "./components/GitPanel";
 import StatusBar from "./components/StatusBar";
 import HostKeyDialog from "./components/HostKeyDialog";
 import VaultDialog from "./components/VaultDialog";
@@ -25,6 +31,7 @@ function App() {
   const closePane = useAppStore((s) => s.closePane);
   const setActivePane = useAppStore((s) => s.setActivePane);
   const cwdBySession = useAppStore((s) => s.cwdBySession);
+  const gitPanelOpen = useAppStore((s) => s.gitPanelOpen);
   const activeTab = tabs.find((t) => t.id === activeTabId);
   const pane = activeTab ? activePane(activeTab) : undefined;
 
@@ -44,6 +51,10 @@ function App() {
   useEffect(() => {
     restoreWorkspace().catch((e) => console.warn("workspace restore failed:", e));
   }, []);
+
+  // Immediate-reconnect triggers: network recovery (`online`) and system
+  // wake (timer drift) retry all reconnecting panes without backoff.
+  useEffect(() => initReconnectTriggers(), []);
 
   // Silent update check, delayed so it doesn't compete with startup work.
   useEffect(() => {
@@ -87,6 +98,9 @@ function App() {
       } else if (key === "d" && s.activeTabId) {
         e.preventDefault();
         splitActivePane(e.shiftKey ? "vertical" : "horizontal").catch(() => {});
+      } else if (key === "g" && !e.shiftKey) {
+        e.preventDefault();
+        s.setGitPanelOpen(!s.gitPanelOpen);
       } else if (key === "enter" && e.shiftKey && s.activeTabId) {
         e.preventDefault();
         s.toggleBroadcast(s.activeTabId);
@@ -163,6 +177,14 @@ function App() {
           <SftpPanel
             connKey={pane.connKey}
             terminalCwd={cwdBySession[pane.sessionId]}
+            connAlive={!pane.status || pane.status === "live"}
+          />
+        )}
+        {gitPanelOpen && pane && (
+          <GitPanel
+            connKey={pane.kind === "ssh" ? pane.connKey : undefined}
+            terminalCwd={cwdBySession[pane.sessionId]}
+            onClose={() => useAppStore.getState().setGitPanelOpen(false)}
           />
         )}
       </div>

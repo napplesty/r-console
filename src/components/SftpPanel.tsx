@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import MdiIcon from "@mdi/react";
@@ -23,6 +23,12 @@ interface SftpPanelProps {
   connKey: string;
   /** Latest cwd reported by the active terminal (OSC 7); panel follows it. */
   terminalCwd?: string;
+  /**
+   * Connection health of the driving pane. A reconnect replaces the backend
+   * connection under the same connKey, so the panel reloads when the pane
+   * returns to live after a reconnect.
+   */
+  connAlive?: boolean;
 }
 
 function formatSize(size?: number | null): string {
@@ -77,7 +83,7 @@ function fileIconFor(name: string): string {
 }
 
 /** Remote file browser bound to one SSH connection. */
-export default function SftpPanel({ connKey, terminalCwd }: SftpPanelProps) {
+export default function SftpPanel({ connKey, terminalCwd, connAlive = true }: SftpPanelProps) {
   const [path, setPath] = useState("~");
   const [entries, setEntries] = useState<SftpEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -108,6 +114,18 @@ export default function SftpPanel({ connKey, terminalCwd }: SftpPanelProps) {
     setPath("~");
     load("~");
   }, [load]);
+
+  // The connKey survives a reconnect (it identifies the host, not the
+  // transport), so watch the pane's health instead: when it returns to live
+  // after a reconnect, reload the current directory against the fresh
+  // backend connection.
+  const wasAlive = useRef(true);
+  useEffect(() => {
+    const prev = wasAlive.current;
+    wasAlive.current = connAlive;
+    if (connAlive && !prev) load(path);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connAlive]);
 
   // Follow the terminal's working directory (MobaXterm-style), but only
   // when it actually changed to avoid reload loops.

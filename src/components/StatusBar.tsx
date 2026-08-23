@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import MdiIcon from "@mdi/react";
-import { mdiCircle, mdiDownload, mdiUpload } from "@mdi/js";
+import { mdiCircle, mdiDownload, mdiSourceBranch, mdiUpload } from "@mdi/js";
 import { activePane, useAppStore } from "../state/store";
 import type { SftpProgress, SysStats } from "../lib/types";
 
@@ -48,6 +48,8 @@ export default function StatusBar() {
   const activeTabId = useAppStore((s) => s.activeTabId);
   const activeTab = tabs.find((t) => t.id === activeTabId);
   const pane = activeTab ? activePane(activeTab) : undefined;
+  const gitPanelOpen = useAppStore((s) => s.gitPanelOpen);
+  const setGitPanelOpen = useAppStore((s) => s.setGitPanelOpen);
 
   const [transfers, setTransfers] = useState<Record<string, SftpProgress>>({});
   const [stats, setStats] = useState<SysStats | null>(null);
@@ -80,12 +82,15 @@ export default function StatusBar() {
     return () => timers.forEach((t) => window.clearTimeout(t));
   }, [transfers]);
 
-  // Poll remote system stats for the active SSH pane only.
+  // Poll remote system stats for the active SSH pane only. The poll pauses
+  // while the pane is reconnecting/dead and re-runs (restoring the stats)
+  // as soon as the pane returns to live after a reconnect.
   const connKey = pane?.kind === "ssh" ? pane.connKey : undefined;
+  const connAlive = !pane?.status || pane.status === "live";
   const inFlight = useRef(false);
   useEffect(() => {
     setStats(null);
-    if (!connKey) return;
+    if (!connKey || !connAlive) return;
     const poll = async () => {
       if (inFlight.current) return;
       inFlight.current = true;
@@ -100,13 +105,13 @@ export default function StatusBar() {
     poll();
     const timer = window.setInterval(poll, 3000);
     return () => window.clearInterval(timer);
-  }, [connKey]);
+  }, [connKey, connAlive]);
 
   // Poll the SSH round-trip latency for the active SSH pane only.
   const pingInFlight = useRef(false);
   useEffect(() => {
     setLatency(null);
-    if (!connKey) return;
+    if (!connKey || !connAlive) return;
     const poll = async () => {
       if (pingInFlight.current) return;
       pingInFlight.current = true;
@@ -121,7 +126,7 @@ export default function StatusBar() {
     poll();
     const timer = window.setInterval(poll, 5000);
     return () => window.clearInterval(timer);
-  }, [connKey]);
+  }, [connKey, connAlive]);
 
   const activeTransfers = Object.values(transfers);
 
@@ -185,6 +190,18 @@ export default function StatusBar() {
           <span>LA {stats.loadAvg.map((v) => v.toFixed(1)).join(" ")}</span>
         </span>
       )}
+
+      <button
+        onClick={() => setGitPanelOpen(!gitPanelOpen)}
+        disabled={!pane}
+        className={`flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 hover:bg-white/10 disabled:opacity-40 ${
+          gitPanelOpen ? "text-(--accent)" : "text-(--text-dim)"
+        }`}
+        title="Toggle Git panel (Cmd/Ctrl+G)"
+      >
+        <MdiIcon path={mdiSourceBranch} size="12px" />
+        Git
+      </button>
     </footer>
   );
 }

@@ -1,5 +1,6 @@
 mod config;
 mod credentials;
+mod git;
 mod local_pty;
 mod paths;
 mod runtime;
@@ -47,6 +48,12 @@ pub fn run() {
             ssh::host_key_decision,
             sysmon::sys_stats,
             sysmon::ssh_ping,
+            git::git_status,
+            git::git_diff,
+            git::git_file_content,
+            git::git_stage,
+            git::git_unstage,
+            git::git_commit,
             credentials::vault_status,
             credentials::vault_unlock,
             credentials::vault_lock,

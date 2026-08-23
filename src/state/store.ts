@@ -8,10 +8,16 @@ import type {
   Tab,
 } from "../lib/types";
 import { DEFAULT_THEME_ID, THEMES } from "../lib/themes";
+import {
+  DEFAULT_HIGHLIGHT_RULES,
+  type HighlightRule,
+} from "../lib/terminalHighlight";
 
 const THEME_STORAGE_KEY = "r-console-theme";
 const SCROLLBACK_STORAGE_KEY = "r-console-scrollback";
 const FOLLOW_CWD_STORAGE_KEY = "r-console-follow-cwd";
+const HIGHLIGHT_ENABLED_STORAGE_KEY = "r-console-highlight-enabled";
+const HIGHLIGHT_RULES_STORAGE_KEY = "r-console-highlight-rules";
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "r-console-sidebar-collapsed";
 const SIDEBAR_PINNED_STORAGE_KEY = "r-console-sidebar-pinned";
 const DEFAULT_SCROLLBACK = 5000;
@@ -29,6 +35,28 @@ function readInitialScrollback(): number {
 function readStoredBool(key: string, fallback: boolean): boolean {
   const saved = localStorage.getItem(key);
   return saved === null ? fallback : saved === "true";
+}
+
+function isHighlightRule(r: unknown): r is HighlightRule {
+  return (
+    typeof r === "object" &&
+    r !== null &&
+    typeof (r as HighlightRule).pattern === "string"
+  );
+}
+
+/** Persisted highlight rules; malformed entries fall back to the defaults. */
+function readInitialHighlightRules(): HighlightRule[] {
+  try {
+    const saved = localStorage.getItem(HIGHLIGHT_RULES_STORAGE_KEY);
+    if (!saved) return DEFAULT_HIGHLIGHT_RULES;
+    const parsed: unknown = JSON.parse(saved);
+    if (!Array.isArray(parsed)) return DEFAULT_HIGHLIGHT_RULES;
+    const rules = parsed.filter(isHighlightRule);
+    return rules.length > 0 ? rules : DEFAULT_HIGHLIGHT_RULES;
+  } catch {
+    return DEFAULT_HIGHLIGHT_RULES;
+  }
 }
 
 /** Expose the active theme to CSS via a data attribute on <html>. */
@@ -64,12 +92,20 @@ interface AppState {  tabs: Tab[];
   scrollback: number;
   /** Whether OSC 7 cwd reports update the UI (SFTP panel follows terminal). */
   followCwd: boolean;
+  /** Whether rule-based keyword highlighting decorates terminal output. */
+  highlightEnabled: boolean;
+  /** Keyword highlight rules, in priority order (first rule wins). */
+  highlightRules: HighlightRule[];
+  /** Wall-clock timestamp of the next auto-reconnect attempt, per pane. */
+  nextRetryAtByPane: Record<string, number>;
   /** Whether the credential vault is currently unlocked. */
   vaultUnlocked: boolean;
   /** Controls visibility of the master-password vault dialog. */
   vaultDialogOpen: boolean;
   /** Controls visibility of the command palette (Cmd/Ctrl+K). */
   paletteOpen: boolean;
+  /** Controls visibility of the Git side panel (Cmd/Ctrl+G). */
+  gitPanelOpen: boolean;
   /** Narrow-rail sidebar mode (persisted). */
   sidebarCollapsed: boolean;
   /** When unpinned, the sidebar auto-collapses after a tab is launched. */
@@ -93,9 +129,13 @@ interface AppState {  tabs: Tab[];
   setThemeId: (id: string) => void;
   setScrollback: (lines: number) => void;
   setFollowCwd: (follow: boolean) => void;
+  setHighlightEnabled: (enabled: boolean) => void;
+  setHighlightRules: (rules: HighlightRule[]) => void;
+  setPaneNextRetryAt: (paneId: string, at: number | null) => void;
   setVaultUnlocked: (unlocked: boolean) => void;
   setVaultDialogOpen: (open: boolean) => void;
   setPaletteOpen: (open: boolean) => void;
+  setGitPanelOpen: (open: boolean) => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
   setSidebarPinned: (pinned: boolean) => void;
   setSessionCwd: (sessionId: string, cwd: string) => void;
@@ -117,9 +157,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   themeId: initialThemeId,
   scrollback: readInitialScrollback(),
   followCwd: readStoredBool(FOLLOW_CWD_STORAGE_KEY, true),
+  highlightEnabled: readStoredBool(HIGHLIGHT_ENABLED_STORAGE_KEY, true),
+  highlightRules: readInitialHighlightRules(),
+  nextRetryAtByPane: {},
   vaultUnlocked: false,
   vaultDialogOpen: false,
   paletteOpen: false,
+  gitPanelOpen: false,
   sidebarCollapsed: readStoredBool(SIDEBAR_COLLAPSED_STORAGE_KEY, false),
   sidebarPinned: readStoredBool(SIDEBAR_PINNED_STORAGE_KEY, true),
   cwdBySession: {},
@@ -268,11 +312,32 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ followCwd: follow });
   },
 
+  setHighlightEnabled: (enabled) => {
+    localStorage.setItem(HIGHLIGHT_ENABLED_STORAGE_KEY, String(enabled));
+    set({ highlightEnabled: enabled });
+  },
+
+  setHighlightRules: (rules) => {
+    const valid = rules.filter(isHighlightRule);
+    localStorage.setItem(HIGHLIGHT_RULES_STORAGE_KEY, JSON.stringify(valid));
+    set({ highlightRules: valid });
+  },
+
+  setPaneNextRetryAt: (paneId, at) =>
+    set((s) => {
+      const nextRetryAtByPane = { ...s.nextRetryAtByPane };
+      if (at === null) delete nextRetryAtByPane[paneId];
+      else nextRetryAtByPane[paneId] = at;
+      return { nextRetryAtByPane };
+    }),
+
   setVaultUnlocked: (unlocked) => set({ vaultUnlocked: unlocked }),
 
   setVaultDialogOpen: (open) => set({ vaultDialogOpen: open }),
 
   setPaletteOpen: (open) => set({ paletteOpen: open }),
+
+  setGitPanelOpen: (open) => set({ gitPanelOpen: open }),
 
   setSidebarCollapsed: (collapsed) => {
     localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, String(collapsed));

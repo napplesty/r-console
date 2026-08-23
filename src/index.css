@@ -155,3 +155,37 @@ body {
 .rc-scrollbar-thumb:hover {
   background: var(--accent);
 }
+
+/* Tab strip (TabBar): scrolls horizontally without a visible scrollbar. */
+.rc-tabs-scroll {
+  scrollbar-width: none;
+}
+.rc-tabs-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* Terminal gutter: command status dots driven by OSC 133 shell integration
+   (VS Code-style). Dots are absolutely positioned by Terminal.tsx. */
+.rc-gutter {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 16px;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.rc-gutter-dot {
+  position: absolute;
+  left: 5px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text-dim) 60%, transparent);
+  pointer-events: auto;
+}
+
+.rc-gutter-dot.rc-gutter-dot-error {
+  background: #f87171;
+}

@@ -19,23 +19,41 @@ enum SessionKind {
     Ssh(SshShell),
 }
 
-/// Shell integration snippet sent right after a shell starts: installs a
-/// prompt hook that reports the working directory via OSC 7, letting the UI
-/// (e.g. the SFTP panel) follow the terminal. Best-effort — unknown shells
-/// simply never report. Ends with `clear` to hide the injected command.
+/// Shell integration snippet sent right after a shell starts: installs
+/// prompt hooks that report the working directory via OSC 7 (letting the
+/// UI, e.g. the SFTP panel, follow the terminal) and command lifecycle
+/// marks via OSC 133 (A prompt, B input, C executing, D done + exit code —
+/// VS Code terminal semantics, used for gutter dots and command
+/// navigation). Best-effort — unknown shells simply never report. Ends
+/// with `clear` to hide the injected command.
 ///
 /// Inside tmux, raw OSC sequences are swallowed by the multiplexer, so the
 /// sequence is wrapped in a DCS passthrough (ESCs of the inner sequence
 /// doubled). This requires `allow-passthrough on` on the tmux session,
 /// which persistent sessions set at creation time.
 pub(crate) const SHELL_INIT: &str = concat!(
-    "__rc_osc7() { if [ -n \"$TMUX\" ]; then",
-    " printf '\\033Ptmux;\\033\\033]7;file://%s%s\\007\\033\\\\' \"$(hostname)\" \"$PWD\";",
-    " else printf '\\033]7;file://%s%s\\033\\\\' \"$(hostname)\" \"$PWD\"; fi; };",
+    // Idempotency marker: a second injection (nested shell, re-source) is a no-op.
+    "if [ -z \"$__rc_shell_integration\" ]; then __rc_shell_integration=1;",
+    // Emit one OSC sequence; inside tmux wrap it in a DCS passthrough.
+    "__rc_osc() { if [ -n \"$TMUX\" ]; then",
+    " printf '\\033Ptmux;\\033\\033]%s\\007\\033\\\\' \"$1\";",
+    " else printf '\\033]%s\\033\\\\' \"$1\"; fi; };",
+    "__rc_osc7() { __rc_osc \"7;file://$(hostname)$PWD\"; };",
+    // Runs at every prompt: report the previous command's exit code (if
+    // any), then mark prompt start (A) and input start (B). `local ec=$?`
+    // must be first — anything else would clobber the real exit code.
+    "__rc_prompt() { local ec=$?;",
+    " if [ -n \"$__rc_cmd\" ]; then __rc_osc \"133;D;$ec\"; __rc_cmd=; fi;",
+    " __rc_osc7; __rc_osc \"133;A\"; __rc_osc \"133;B\"; };",
+    // Runs between accepting a command and executing it (zsh preexec, bash PS0).
+    "__rc_exec() { __rc_cmd=1; __rc_osc \"133;C\"; };",
     "case \"$0\" in",
-    " *zsh) autoload -Uz add-zsh-hook && add-zsh-hook precmd __rc_osc7 ;;",
-    " *bash) PROMPT_COMMAND=\"${PROMPT_COMMAND:+$PROMPT_COMMAND;}__rc_osc7\" ;;",
-    "esac; clear\n",
+    " *zsh) autoload -Uz add-zsh-hook",
+    " && add-zsh-hook precmd __rc_prompt && add-zsh-hook preexec __rc_exec ;;",
+    " *bash) PROMPT_COMMAND=\"__rc_prompt${PROMPT_COMMAND:+;$PROMPT_COMMAND}\";",
+    // PS0 expands like PS1; \[ \] mark the escape output as non-printing.
+    " PS0='\\[$(__rc_exec)\\]'\"$PS0\" ;;",
+    "esac; fi; clear\n",
 );
 
 #[derive(Default)]

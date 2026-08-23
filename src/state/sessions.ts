@@ -261,6 +261,7 @@ export function scheduleReconnect(tabId: string, paneId: string): void {
   const delay = Math.min(1000 * 2 ** (entry.attempts - 1), MAX_BACKOFF_MS);
   window.clearTimeout(entry.timer);
   entry.timer = window.setTimeout(() => void attemptReconnect(tabId, paneId), delay);
+  useAppStore.getState().setPaneNextRetryAt(paneId, Date.now() + delay);
 }
 
 /** Single reconnect attempt; reschedules itself on failure. */
@@ -282,6 +283,7 @@ export async function attemptReconnect(
   }
   if (!config) {
     reconnects.delete(paneId);
+    useAppStore.getState().setPaneNextRetryAt(paneId, null);
     useAppStore.getState().updatePane(tabId, paneId, { status: "dead" });
     return false;
   }
@@ -293,6 +295,7 @@ export async function attemptReconnect(
       rows: 24,
     });
     reconnects.delete(paneId);
+    useAppStore.getState().setPaneNextRetryAt(paneId, null);
     useAppStore.getState().updatePane(tabId, paneId, {
       sessionId: info.sessionId,
       connKey: info.connKey,
@@ -312,6 +315,7 @@ export function cancelReconnect(tabId: string, paneId: string): void {
   const entry = reconnects.get(paneId);
   if (entry?.timer) window.clearTimeout(entry.timer);
   reconnects.delete(paneId);
+  useAppStore.getState().setPaneNextRetryAt(paneId, null);
   useAppStore.getState().updatePane(tabId, paneId, { status: "dead" });
 }
 
@@ -324,6 +328,50 @@ export async function retryReconnect(
   const entry = reconnects.get(paneId);
   if (entry?.timer) window.clearTimeout(entry.timer);
   reconnects.delete(paneId);
+  useAppStore.getState().setPaneNextRetryAt(paneId, null);
   useAppStore.getState().updatePane(tabId, paneId, { status: "reconnecting" });
   return attemptReconnect(tabId, paneId);
+}
+
+/**
+ * Immediately retry every pane stuck in "reconnecting": reset its backoff
+ * and attempt now instead of waiting for the scheduled timer. Triggered on
+ * network recovery (browser `online`) and system wake (timer drift).
+ */
+export function reconnectAllNow(): void {
+  const { tabs } = useAppStore.getState();
+  for (const tab of tabs) {
+    for (const pane of tab.panes) {
+      if (pane.status !== "reconnecting") continue;
+      const entry = reconnects.get(pane.id);
+      if (entry?.timer) window.clearTimeout(entry.timer);
+      if (entry) entry.attempts = 0;
+      void attemptReconnect(tab.id, pane.id);
+    }
+  }
+}
+
+// A suspended machine freezes timers; a tick that arrives far later than
+// scheduled means the system just woke up.
+const WAKE_CHECK_INTERVAL_MS = 5_000;
+const WAKE_DRIFT_THRESHOLD_MS = 15_000;
+
+/**
+ * Register the immediate-reconnect triggers: the browser `online` event and
+ * sleep/wake detection via timer drift. Returns an unsubscribe function.
+ */
+export function initReconnectTriggers(): () => void {
+  const onOnline = () => reconnectAllNow();
+  window.addEventListener("online", onOnline);
+  let lastTick = Date.now();
+  const timer = window.setInterval(() => {
+    const now = Date.now();
+    const drifted = now - lastTick > WAKE_DRIFT_THRESHOLD_MS;
+    lastTick = now;
+    if (drifted) reconnectAllNow();
+  }, WAKE_CHECK_INTERVAL_MS);
+  return () => {
+    window.removeEventListener("online", onOnline);
+    window.clearInterval(timer);
+  };
 }

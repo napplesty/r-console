@@ -262,7 +262,7 @@ impl SshConnection {
     }
 
     /// Run a command, returning its combined output and exit status.
-    async fn exec_full(&self, command: &str) -> Result<(String, Option<u32>), String> {
+    pub(crate) async fn exec_full(&self, command: &str) -> Result<(String, Option<u32>), String> {
         let mut channel = self
             .handle
             .lock()
@@ -401,6 +401,9 @@ impl SshShell {
             .channel_open_session()
             .await
             .map_err(|e| format!("Failed to open shell channel: {e}"))?;
+        // Best-effort: advertise truecolor support. Most sshd builds reject
+        // env vars not in AcceptEnv, so failures are expected and ignored.
+        let _ = channel.set_env(false, "COLORTERM", "truecolor").await;
         channel
             .request_pty(true, "xterm-256color", cols as u32, rows as u32, 0, 0, &[])
             .await
