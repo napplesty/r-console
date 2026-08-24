@@ -48,12 +48,34 @@ fn write_all(sessions: &[SavedSession]) -> Result<(), String> {
 
 #[tauri::command]
 pub fn saved_sessions_list() -> Result<Vec<SavedSession>, String> {
-    read_all()
+    let all = read_all()?;
+    // Clean up duplicates accumulated before endpoint-based dedup: one entry
+    // per host+port+username, keeping the last occurrence in the file.
+    let mut seen = std::collections::HashSet::new();
+    let mut deduped: Vec<SavedSession> = all
+        .iter()
+        .rev()
+        .filter(|s| seen.insert((s.host.clone(), s.port, s.username.clone())))
+        .cloned()
+        .collect();
+    deduped.reverse();
+    if deduped.len() != all.len() {
+        write_all(&deduped)?;
+    }
+    Ok(deduped)
 }
 
 #[tauri::command]
 pub fn saved_sessions_save(session: SavedSession) -> Result<(), String> {
     let mut all = read_all()?;
+    // One entry per endpoint: drop stale duplicates of the same
+    // host/port/username saved under a different id.
+    all.retain(|s| {
+        s.id == session.id
+            || s.host != session.host
+            || s.port != session.port
+            || s.username != session.username
+    });
     match all.iter_mut().find(|s| s.id == session.id) {
         Some(existing) => *existing = session,
         None => all.push(session),

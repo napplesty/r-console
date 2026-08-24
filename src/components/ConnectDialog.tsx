@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { SavedSession, SplitDirection, SshConnectConfig } from "../lib/types";
-import { openSshTab, splitTabWithSsh } from "../state/sessions";
+import { findSavedByEndpoint, openSshTab, splitTabWithSsh } from "../state/sessions";
 import { useAppStore } from "../state/store";
 import { withVaultRetry } from "../state/vault";
 
@@ -71,8 +71,18 @@ export default function ConnectDialog({
       const title = name.trim() || config.host;
       // The descriptor travels with the pane for workspace restore and
       // reconnects; with saveSession off it gets an empty id (no vault
-      // credential attached).
-      const sessionId = saveSession ? prefill?.id || crypto.randomUUID() : "";
+      // credential attached). When saving, reuse the id of an existing entry
+      // for the same endpoint instead of accumulating duplicates.
+      const sessionId = saveSession
+        ? prefill?.id ||
+          findSavedByEndpoint(
+            useAppStore.getState().savedSessions,
+            config.host,
+            config.port,
+            config.username,
+          )?.id ||
+          crypto.randomUUID()
+        : "";
       const savedRow: SavedSession = {
         id: sessionId,
         name: title,

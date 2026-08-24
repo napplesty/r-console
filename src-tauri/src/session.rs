@@ -157,6 +157,7 @@ pub async fn session_spawn_ssh(
         window_label,
         config.persistent,
         config.tmux_session.clone(),
+        config.cwd.clone(),
     )
     .await?;
 
@@ -600,6 +601,126 @@ pub async fn sftp_write_text(
         .await
         .map_err(|e| format!("Failed to finalize remote file: {e}"))?;
     Ok(())
+}
+
+#[tauri::command]
+pub async fn sftp_rename(
+    state: State<'_, SharedSessionManager>,
+    conn_key: String,
+    old_path: String,
+    new_path: String,
+) -> Result<(), String> {
+    let conn = get_conn(&state, &conn_key)?;
+    let sftp = conn.sftp().await?;
+    sftp.rename(&old_path, &new_path)
+        .await
+        .map_err(|e| format!("Failed to rename: {e}"))
+}
+
+#[tauri::command]
+pub async fn sftp_mkdir(
+    state: State<'_, SharedSessionManager>,
+    conn_key: String,
+    path: String,
+) -> Result<(), String> {
+    let conn = get_conn(&state, &conn_key)?;
+    let sftp = conn.sftp().await?;
+    sftp.create_dir(&path)
+        .await
+        .map_err(|e| format!("Failed to create directory: {e}"))
+}
+
+/// Delete a remote file or directory. Directories are removed recursively by
+/// walking the tree over SFTP (files first, then directories bottom-up) —
+/// no shell involved, so no quoting hazards.
+#[tauri::command]
+pub async fn sftp_delete(
+    state: State<'_, SharedSessionManager>,
+    conn_key: String,
+    path: String,
+    is_dir: bool,
+) -> Result<(), String> {
+    let conn = get_conn(&state, &conn_key)?;
+    let sftp = conn.sftp().await?;
+    if !is_dir {
+        return sftp
+            .remove_file(&path)
+            .await
+            .map_err(|e| format!("Failed to delete file: {e}"));
+    }
+    let mut dirs = vec![path];
+    let mut files: Vec<String> = Vec::new();
+    let mut idx = 0;
+    while idx < dirs.len() {
+        let entries = sftp
+            .read_dir(&dirs[idx])
+            .await
+            .map_err(|e| format!("Failed to read directory: {e}"))?;
+        idx += 1;
+        for e in entries {
+            // Symlinks are not followed: they are removed as files.
+            if e.file_type().is_dir() {
+                dirs.push(e.path());
+            } else {
+                files.push(e.path());
+            }
+        }
+    }
+    for f in &files {
+        sftp.remove_file(f)
+            .await
+            .map_err(|e| format!("Failed to delete file {f}: {e}"))?;
+    }
+    for d in dirs.iter().rev() {
+        sftp.remove_dir(d)
+            .await
+            .map_err(|e| format!("Failed to delete directory {d}: {e}"))?;
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SshGrepHit {
+    pub path: String,
+    pub line: u32,
+    pub preview: String,
+}
+
+/// Content search ("grep -r") inside a remote directory. Runs on a throwaway
+/// exec channel; output is capped at 200 hits. Note: paths containing ':'
+/// cannot be told apart from grep's field separator and are skipped.
+#[tauri::command]
+pub async fn ssh_grep(
+    state: State<'_, SharedSessionManager>,
+    conn_key: String,
+    path: String,
+    query: String,
+) -> Result<Vec<SshGrepHit>, String> {
+    let conn = get_conn(&state, &conn_key)?;
+    let cmd = format!(
+        "grep -rIn --binary-files=without-match --exclude-dir=.git -e {} -- {} 2>/dev/null | head -n 200",
+        crate::ssh::shell_quote(&query),
+        crate::ssh::shell_quote(&path),
+    );
+    let out = conn.exec(&cmd).await?;
+    // Each hit line is `/path/to/file:123:matching text`.
+    let mut hits = Vec::new();
+    for line in out.lines() {
+        let mut parts = line.splitn(3, ':');
+        let (Some(p), Some(n), Some(text)) = (parts.next(), parts.next(), parts.next()) else {
+            continue;
+        };
+        let Ok(n) = n.parse::<u32>() else {
+            continue;
+        };
+        hits.push(SshGrepHit {
+            path: p.to_string(),
+            line: n,
+            preview: text.trim().chars().take(200).collect(),
+        });
+    }
+    Ok(hits)
 }
 
 pub(crate) fn get_conn(

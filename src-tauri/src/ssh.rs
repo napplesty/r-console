@@ -43,10 +43,19 @@ pub struct SshConnectConfig {
     /// when `persistent` is set.
     #[serde(default)]
     pub tmux_session: Option<String>,
+    /// Optional remote directory to `cd` into once the shell is up (used by
+    /// "open terminal here" from the file browser).
+    #[serde(default)]
+    pub cwd: Option<String>,
 }
 
 fn default_persistent() -> bool {
     true
+}
+
+/// Single-quote a string for safe embedding in a POSIX shell command line.
+pub(crate) fn shell_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
 }
 
 impl SshConnectConfig {
@@ -393,6 +402,7 @@ impl SshShell {
         window: String,
         persistent: bool,
         tmux_session: Option<String>,
+        cwd: Option<String>,
     ) -> Result<Self, String> {
         let channel = conn
             .handle
@@ -449,11 +459,15 @@ impl SshShell {
             // copy-mode through the control channel — selection then
             // behaves like a plain SSH session. `-q` silences
             // unknown-option errors on older tmux versions.
+            // `tmux -u` forces UTF-8 mode regardless of locale, and the env
+            // prefix gives the client (and the pane shells it spawns) a UTF-8
+            // locale — without it non-ASCII input (e.g. CJK punctuation) is
+            // mangled before it reaches the pane.
             let cmd = if exists {
-                format!("tmux attach-session -t {name}")
+                format!("env LANG=C.UTF-8 LC_ALL=C.UTF-8 tmux -u attach-session -t {name}")
             } else {
                 format!(
-                    "tmux new-session -s {name} \\; set -q -t {name} status off \\; set -q -t {name} mouse off \\; set -q -t {name} history-limit 50000 \\; set -q -t {name} allow-passthrough on"
+                    "env LANG=C.UTF-8 LC_ALL=C.UTF-8 tmux -u new-session -s {name} \\; set -q -t {name} status off \\; set -q -t {name} mouse off \\; set -q -t {name} history-limit 50000 \\; set -q -t {name} allow-passthrough on"
                 )
             };
             channel
@@ -477,6 +491,16 @@ impl SshShell {
         // SFTP panel can follow the terminal. Best-effort; ignore failures.
         if inject_shell_init {
             let _ = channel.data_bytes(crate::session::SHELL_INIT).await;
+        }
+
+        // "Open terminal here": land the new shell in the requested directory.
+        // Sent as queued keystrokes so it works for plain shells and tmux
+        // alike; on a reattached tmux session it re-applies the cwd, which is
+        // harmless.
+        if let Some(cwd) = cwd {
+            let _ = channel
+                .data_bytes(format!("cd {}\n", shell_quote(&cwd)).into_bytes())
+                .await;
         }
 
         let (tx, mut rx) = mpsc::channel::<ShellInput>(INPUT_QUEUE);

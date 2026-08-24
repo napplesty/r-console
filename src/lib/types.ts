@@ -52,6 +52,8 @@ export interface SshConnectConfig {
   persistent: boolean;
   /** tmux session name, generated once per pane and reused on reconnect. */
   tmuxSession?: string;
+  /** Remote directory to `cd` into once the shell is up ("open terminal here"). */
+  cwd?: string;
 }
 
 export interface SshSessionInfo {
@@ -82,6 +84,13 @@ export interface SftpEntry {
 export interface SftpDirListing {
   path: string;
   entries: SftpEntry[];
+}
+
+/** One `ssh_grep` match inside a remote directory. */
+export interface SshGrepHit {
+  path: string;
+  line: number;
+  preview: string;
 }
 
 /** Progress of one SFTP transfer, emitted by the `sftp-progress` event. */

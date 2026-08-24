@@ -17,6 +17,7 @@ import {
   splitTabWithLocal,
   splitTabWithSsh,
   sshConfigAsSaved,
+  tryConnectSaved,
 } from "../state/sessions";
 import { THEMES } from "../lib/themes";
 import ConnectDialog from "./ConnectDialog";
@@ -67,6 +68,12 @@ export default function TabBar() {
   const [overflowMenu, setOverflowMenu] = useState<{ x: number; y: number } | null>(
     null,
   );
+  // The "+" button's new-session dropdown, and the connect dialog it can open.
+  const [newTabMenu, setNewTabMenu] = useState<{ x: number; y: number } | null>(
+    null,
+  );
+  const [newConnOpen, setNewConnOpen] = useState(false);
+  const [newConnPrefill, setNewConnPrefill] = useState<SavedSession | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const tabsRef = useRef<HTMLDivElement>(null);
   const controlsRef = useRef<HTMLDivElement>(null);
@@ -141,6 +148,16 @@ export default function TabBar() {
       }
     }
     setSplitDialog({ prefill: s, direction });
+  };
+
+  // Connect a saved/configured host as a new tab; fall back to the prefilled
+  // connect dialog when credentials cannot be resolved silently.
+  const connectSavedAsTab = async (s: SavedSession) => {
+    setNewTabMenu(null);
+    if (!(await tryConnectSaved(s))) {
+      setNewConnPrefill(s);
+      setNewConnOpen(true);
+    }
   };
 
   const menuItemClass =
@@ -243,9 +260,12 @@ export default function TabBar() {
         ))}
       </div>
       <button
-        onClick={() => openLocalTab().catch(() => {})}
+        onClick={(e) => {
+          const rect = e.currentTarget.getBoundingClientRect();
+          setNewTabMenu({ x: rect.left, y: rect.bottom + 4 });
+        }}
         className="shrink-0 rounded px-2 py-1 text-(--text-dim) hover:bg-white/5 hover:text-(--text)"
-        title="New local terminal"
+        title="New session"
       >
         +
       </button>
@@ -464,6 +484,80 @@ export default function TabBar() {
             </label>
           </div>
         </>
+      )}
+
+      {newTabMenu && (
+        <>
+          {/* Click-away layer closing the menu */}
+          <div className="fixed inset-0 z-40" onClick={() => setNewTabMenu(null)} />
+          <div
+            className="fixed z-50 max-h-80 w-56 overflow-y-auto rounded border border-(--border) bg-(--panel-alt) py-1 shadow-xl"
+            style={{ left: newTabMenu.x, top: newTabMenu.y }}
+          >
+            <button
+              onClick={() => {
+                setNewTabMenu(null);
+                openLocalTab().catch(() => {});
+              }}
+              className={menuItemClass}
+            >
+              <MdiIcon path={mdiConsole} size="14px" />
+              Local terminal
+            </button>
+            <button
+              onClick={() => {
+                setNewTabMenu(null);
+                setNewConnPrefill(null);
+                setNewConnOpen(true);
+              }}
+              className={menuItemClass}
+            >
+              <MdiIcon path={mdiSsh} size="14px" />
+              SSH connection…
+            </button>
+
+            {savedSessions.length > 0 && (
+              <p className="mt-1 border-t border-(--border) px-3 pt-2 pb-0.5 text-xs font-medium text-(--text-dim)">
+                Saved
+              </p>
+            )}
+            {savedSessions.map((s) => (
+              <button
+                key={s.id}
+                onClick={() => connectSavedAsTab(s)}
+                className={menuItemClass}
+                title={`${s.username}@${s.host}:${s.port}`}
+              >
+                <MdiIcon path={mdiSsh} size="14px" />
+                <span className="truncate">{s.name}</span>
+              </button>
+            ))}
+
+            {sshConfigHosts.length > 0 && (
+              <p className="mt-1 border-t border-(--border) px-3 pt-2 pb-0.5 text-xs font-medium text-(--text-dim)">
+                From ~/.ssh/config
+              </p>
+            )}
+            {sshConfigHosts.map((h) => (
+              <button
+                key={h.alias}
+                onClick={() => connectSavedAsTab(sshConfigAsSaved(h))}
+                className={menuItemClass}
+                title={`${h.user ? `${h.user}@` : ""}${h.hostName}:${h.port ?? 22}`}
+              >
+                <MdiIcon path={mdiSsh} size="14px" />
+                <span className="truncate">{h.alias}</span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      {newConnOpen && (
+        <ConnectDialog
+          prefill={newConnPrefill}
+          onClose={() => setNewConnOpen(false)}
+        />
       )}
 
       {splitMenu && activeTab && (

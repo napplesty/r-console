@@ -27,6 +27,11 @@ import "monaco-editor/languages/definitions/go/register";
 // Monarch tokenizer in Monaco; its support has always been worker-based.
 import "monaco-editor/language/json/monaco.contribution";
 
+// Find/replace widget (Ctrl+F / Ctrl+H) for the file viewer; importing the
+// controller self-registers the actions and keybindings. The package's
+// exports map hides the `esm/vs` prefix (same as `editor/editor.api` above).
+import "monaco-editor/editor/contrib/find/browser/findController.js";
+
 self.MonacoEnvironment = {
   getWorker: (_workerId: string, label: string) =>
     label === "json" ? new JsonWorker() : new EditorWorker(),

@@ -7,6 +7,8 @@ import { getTheme } from "../lib/themes";
 interface FileViewerProps {
   connKey: string;
   remotePath: string;
+  /** 1-based line to reveal and focus (used by grep results). */
+  line?: number;
   onClose: () => void;
 }
 
@@ -54,6 +56,7 @@ export function languageForPath(remotePath: string): string {
 export default function FileViewer({
   connKey,
   remotePath,
+  line,
   onClose,
 }: FileViewerProps) {
   const [error, setError] = useState<string | null>(null);
@@ -122,6 +125,11 @@ export default function FileViewer({
         editor.setValue(text);
         setDirty(false);
         setLoading(false);
+        if (line && line > 0) {
+          editor.setPosition({ lineNumber: line, column: 1 });
+          editor.revealLineInCenter(line);
+          editor.focus();
+        }
       })
       .catch((err) => {
         if (cancelled) return;

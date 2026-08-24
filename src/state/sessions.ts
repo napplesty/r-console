@@ -119,6 +119,27 @@ export async function splitTabWithSsh(
 }
 
 /**
+ * Find a saved session for the same endpoint (host+port+username). Used to
+ * deduplicate saves: re-saving an existing endpoint reuses its id so the
+ * vault credential (keyed by id) stays attached instead of accumulating
+ * duplicate entries.
+ */
+export function findSavedByEndpoint(
+  sessions: SavedSession[],
+  host: string,
+  port: number,
+  username: string,
+): SavedSession | undefined {
+  return sessions.find(
+    (s) =>
+      s.id !== "" &&
+      s.host === host &&
+      s.port === port &&
+      s.username === username,
+  );
+}
+
+/**
  * Build a connect config for a saved session without user interaction:
  * key auth uses the stored key path, password auth looks the password up in
  * the vault (unlocking it if needed). Returns null when credentials are
