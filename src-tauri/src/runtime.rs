@@ -14,6 +14,7 @@
 //! producers easily emit hundreds of small chunks per second; one event per
 //! chunk would bury the webview in IPC overhead).
 
+use std::future::Future;
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
@@ -56,7 +57,7 @@ pub fn transfer() -> &'static Runtime {
             .map(|n| n.get())
             .unwrap_or(4)
             / 2)
-        .clamp(2, 4);
+            .clamp(2, 4);
         tokio::runtime::Builder::new_multi_thread()
             .worker_threads(workers)
             .thread_name("rc-transfer".to_string())
@@ -64,6 +65,20 @@ pub fn transfer() -> &'static Runtime {
             .build()
             .expect("failed to build transfer runtime")
     })
+}
+
+/// Run one potentially slow task on the transfer pool and wait for it.
+/// Used for heavy local work (recursive grep/delete/copy, local git) so it
+/// never occupies the interactive thread or the IPC dispatch path.
+pub async fn run_bulk<F, T>(fut: F) -> Result<T, String>
+where
+    F: Future<Output = Result<T, String>> + Send + 'static,
+    T: Send + 'static,
+{
+    match transfer().spawn(fut).await {
+        Ok(res) => res,
+        Err(e) => Err(format!("Background task failed: {e}")),
+    }
 }
 
 /// Eagerly start both runtimes so thread names show up in debug tools from

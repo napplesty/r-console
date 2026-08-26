@@ -116,7 +116,7 @@ export default function GitDiffViewer({
           </span>
           <button
             onClick={onClose}
-            className="shrink-0 rounded px-2 py-0.5 text-(--text-dim) hover:bg-white/10 hover:text-(--text)"
+            className="shrink-0 rounded px-2 py-0.5 text-(--text-dim) hover:bg-(--hover-strong) hover:text-(--text)"
           >
             ×
           </button>

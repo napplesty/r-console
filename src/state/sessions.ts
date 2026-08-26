@@ -47,10 +47,14 @@ async function spawnSshPane(
 }
 
 /** Spawn a local shell and return it as a pane. */
-export async function spawnLocalPane(title: string): Promise<Pane> {
+export async function spawnLocalPane(
+  title: string,
+  cwd?: string,
+): Promise<Pane> {
   const sessionId = await invoke<string>("session_spawn_local", {
     cols: 80,
     rows: 24,
+    cwd: cwd ?? null,
   });
   return {
     id: crypto.randomUUID(),
@@ -60,9 +64,15 @@ export async function spawnLocalPane(title: string): Promise<Pane> {
   };
 }
 
-/** Spawn a local shell session and open it in a new single-pane tab. */
-export async function openLocalTab(): Promise<void> {
-  const pane = await spawnLocalPane("Terminal");
+/**
+ * Spawn a local shell session and open it in a new single-pane tab. `cwd`
+ * lands the shell in a directory ("open terminal here" from the file panel).
+ */
+export async function openLocalTab(cwd?: string): Promise<void> {
+  const title = cwd
+    ? (cwd.split(/[\\/]/).filter(Boolean).pop() ?? "Terminal")
+    : "Terminal";
+  const pane = await spawnLocalPane(title, cwd);
   useAppStore.getState().addTab({
     id: crypto.randomUUID(),
     title: pane.title,

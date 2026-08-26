@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import MdiIcon from "@mdi/react";
 import { mdiMinus, mdiPlus, mdiRefresh, mdiSourceBranch } from "@mdi/js";
 import type { GitStatus, GitStatusEntry } from "../lib/types";
+import { useAppStore } from "../state/store";
 
 // Monaco is heavy (~3 MB): split it out of the main bundle and load it only
 // when a diff is actually opened.
@@ -11,8 +12,9 @@ const GitDiffViewer = lazy(() => import("./GitDiffViewer"));
 interface GitPanelProps {
   /** SSH connection key; undefined for local sessions. */
   connKey?: string;
-  /** Latest cwd reported by the active terminal (OSC 7); panel follows it. */
-  terminalCwd?: string;
+  /** Backend session whose cwd the panel follows (OSC 7); the value is read
+   *  from the store inside the panel. */
+  sessionId?: string;
   onClose: () => void;
 }
 
@@ -37,9 +39,14 @@ function badgeClass(letter: string): string {
  *  at the active terminal's working directory (local or over SSH). */
 export default function GitPanel({
   connKey,
-  terminalCwd,
+  sessionId,
   onClose,
 }: GitPanelProps) {
+  // Read the pane's cwd from the store directly so other sessions' cwd
+  // updates never re-render this panel.
+  const terminalCwd = useAppStore((s) =>
+    sessionId ? s.cwdBySession[sessionId] : undefined,
+  );
   const [status, setStatus] = useState<GitStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -111,9 +118,9 @@ export default function GitPanel({
   const untracked = entries.filter((e) => e.stagedState === "?");
 
   const iconBtn =
-    "flex items-center gap-1 rounded px-2 py-1 text-xs text-(--text) hover:bg-white/10 disabled:opacity-40";
+    "flex items-center gap-1 rounded px-2 py-1 text-xs text-(--text) hover:bg-(--hover-strong) disabled:opacity-40";
   const fileBtn =
-    "flex items-center rounded px-1 text-(--text-dim) hover:bg-white/10 hover:text-(--text)";
+    "flex items-center rounded px-1 text-(--text-dim) hover:bg-(--hover-strong) hover:text-(--text)";
 
   const renderGroup = (
     title: string,
@@ -141,7 +148,7 @@ export default function GitPanel({
           <div
             key={`${title}:${f.path}`}
             onClick={() => setDiffing({ path: f.path, staged: stagedView })}
-            className="flex cursor-pointer items-center justify-between rounded px-2 py-1 text-sm hover:bg-white/5"
+            className="flex cursor-pointer items-center justify-between rounded px-2 py-1 text-sm hover:bg-(--hover)"
             title={f.origPath ? `${f.origPath} → ${f.path}` : f.path}
           >
             <span className="flex min-w-0 items-center gap-1.5">

@@ -112,7 +112,7 @@ export default function HostKeyDialog() {
             <>
               <button
                 onClick={() => decide(false)}
-                className="rounded px-3 py-1.5 text-sm text-(--text-dim) hover:bg-white/5"
+                className="rounded px-3 py-1.5 text-sm text-(--text-dim) hover:bg-(--hover)"
               >
                 Reject
               </button>

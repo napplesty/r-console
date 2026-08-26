@@ -3,6 +3,7 @@ import MdiIcon from "@mdi/react";
 import {
   mdiBroadcast,
   mdiClose,
+  mdiCogOutline,
   mdiConsole,
   mdiPalette,
   mdiSsh,
@@ -95,6 +96,12 @@ export default function CommandPalette() {
         label: "Check for updates…",
         icon: mdiUpdate,
         run: () => void checkForUpdates(false),
+      },
+      {
+        id: "open-settings",
+        label: "Open settings…",
+        icon: mdiCogOutline,
+        run: () => useAppStore.getState().setSettingsOpen(true),
       },
     ];
     if (activeTabId) {

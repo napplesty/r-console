@@ -65,9 +65,14 @@ export class TmuxScrollController {
 
   /**
    * Consume a wheel event. Returns true when the event was handled here and
-   * xterm must not process it further.
+   * xterm must not process it further. Shift bypasses the interception: the
+   * event then reaches xterm, which forwards it to the app when it requested
+   * mouse reporting, or converts it to arrow keys on the alt screen (e.g.
+   * paging in `less`). Needed for alt-screen apps whose output never enters
+   * tmux history, where copy-mode scrolling has nothing to show.
    */
   handleWheel(e: WheelEvent): boolean {
+    if (e.shiftKey) return false;
     if (!this.getConnKey() || !this.getTmuxSession()) return false;
     const lines = this.linesOf(e);
     if (lines === 0) return true;

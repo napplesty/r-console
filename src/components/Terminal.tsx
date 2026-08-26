@@ -78,6 +78,10 @@ export default function TerminalView({
   // Dead panes without resolvable credentials offer the connect dialog.
   const [credDialogOpen, setCredDialogOpen] = useState(false);
   const themeId = useAppStore((s) => s.themeId);
+  const fontSize = useAppStore((s) => s.fontSize);
+  const cursorStyle = useAppStore((s) => s.cursorStyle);
+  const cursorBlink = useAppStore((s) => s.cursorBlink);
+  const imeCompat = useAppStore((s) => s.imeCompat);
   // Highlight colors follow the theme; read by the scan loop in effect A.
   const highlightPaletteRef = useRef<HighlightPalette>(
     buildHighlightPalette(getTheme(themeId)),
@@ -89,8 +93,10 @@ export default function TerminalView({
     if (!container) return;
 
     const term = new Terminal({
-      cursorBlink: true,
-      fontSize: 14,
+      cursorBlink: useAppStore.getState().cursorBlink,
+      cursorStyle: useAppStore.getState().cursorStyle,
+      fontSize: useAppStore.getState().fontSize,
+      screenReaderMode: useAppStore.getState().imeCompat,
       // Mirrors --font-mono in index.css; xterm needs an explicit family.
       fontFamily:
         "'JetBrains Mono', 'SF Mono', SFMono-Regular, Menlo, Consolas, 'Liberation Mono', 'Courier New', monospace",
@@ -269,7 +275,11 @@ export default function TerminalView({
           y < term.rows &&
           cellHeight > 0;
         if (!visible) {
-          if (mark.dot) mark.dot.style.display = "none";
+          // Style writes are guarded: this loop runs on every render tick,
+          // and rewriting an unchanged value still dirties style.
+          if (mark.dot && mark.dot.style.display !== "none") {
+            mark.dot.style.display = "none";
+          }
           continue;
         }
         if (!mark.dot) {
@@ -284,7 +294,7 @@ export default function TerminalView({
           mark.exitCode === undefined
             ? "Command"
             : `Exit code: ${mark.exitCode}`;
-        mark.dot.style.display = "block";
+        if (mark.dot.style.display !== "block") mark.dot.style.display = "block";
         mark.dot.style.top = `${Math.round(
           gutterTop + y * cellHeight + (cellHeight - 6) / 2,
         )}px`;
@@ -321,8 +331,27 @@ export default function TerminalView({
 
     // Command navigation: Cmd/Ctrl+Up/Down jumps between command marks.
     // Skipped on the alt screen — tmux panes scroll remotely instead.
+    // Clipboard: Linux terminal convention Ctrl/Cmd+Shift+C copies the
+    // selection (plain Ctrl+C must stay SIGINT), Ctrl/Cmd+Shift+V pastes.
+    // Paste prefers the async clipboard API and falls back to a synthetic
+    // native paste, which xterm handles through its textarea listener.
     term.attachCustomKeyEventHandler((e) => {
-      if (e.type !== "keydown" || !(e.metaKey || e.ctrlKey)) return true;
+      if (e.type !== "keydown") return true;
+      if (e.shiftKey && (e.metaKey || e.ctrlKey)) {
+        const key = e.key.toLowerCase();
+        if (key === "c" && term.hasSelection()) {
+          navigator.clipboard.writeText(term.getSelection()).catch(() => {});
+          return false;
+        }
+        if (key === "v") {
+          navigator.clipboard
+            .readText()
+            .then((text) => term.paste(text))
+            .catch(() => document.execCommand("paste"));
+          return false;
+        }
+      }
+      if (!(e.metaKey || e.ctrlKey)) return true;
       if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return true;
       const buf = term.buffer.active;
       if (buf.type !== "normal") return true;
@@ -607,6 +636,24 @@ export default function TerminalView({
     if (term) term.options.theme = getTheme(themeId).xterm;
     highlightPaletteRef.current = buildHighlightPalette(getTheme(themeId));
   }, [themeId]);
+
+  // Font and cursor settings apply live; a font change reflows cell sizes,
+  // so refit and push the new dimensions to the backend (active panes only —
+  // hidden containers report zero size and refit when they become active).
+  useEffect(() => {
+    const term = termRef.current;
+    if (!term) return;
+    term.options.fontSize = fontSize;
+    term.options.cursorStyle = cursorStyle;
+    term.options.cursorBlink = cursorBlink;
+    if (active) syncSizeRef.current();
+  }, [fontSize, cursorStyle, cursorBlink, active]);
+
+  // IME compatibility mode (xterm screenReaderMode) applies live.
+  useEffect(() => {
+    const term = termRef.current;
+    if (term) term.options.screenReaderMode = imeCompat;
+  }, [imeCompat]);
 
   const status = pane.status ?? "live";
   // Countdown to the next auto-reconnect attempt (drives the overlay text).

@@ -37,12 +37,14 @@ fn default_shell() -> String {
 }
 
 impl LocalPty {
+    #[allow(clippy::too_many_arguments)]
     pub fn spawn(
         app: AppHandle,
         session_id: &str,
         cols: u16,
         rows: u16,
         window: &str,
+        cwd: Option<&str>,
     ) -> Result<Self, String> {
         let pair = native_pty_system()
             .openpty(PtySize {
@@ -54,6 +56,10 @@ impl LocalPty {
             .map_err(|e| e.to_string())?;
 
         let mut cmd = CommandBuilder::new(default_shell());
+        // Land the shell in the requested directory ("open terminal here").
+        if let Some(dir) = cwd {
+            cmd.cwd(dir);
+        }
         // Advertise a 256-color terminal; some environments lack TERM,
         // which silently disables colored output in shells and tools.
         cmd.env("TERM", "xterm-256color");

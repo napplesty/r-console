@@ -2,6 +2,7 @@ mod config;
 mod credentials;
 mod git;
 mod local_pty;
+mod localfs;
 mod paths;
 mod runtime;
 mod session;
@@ -44,6 +45,14 @@ pub fn run() {
             session::sftp_mkdir,
             session::ssh_grep,
             session::tmux_control_send,
+            localfs::localfs_list_dir,
+            localfs::localfs_read_text,
+            localfs::localfs_write_text,
+            localfs::localfs_rename,
+            localfs::localfs_mkdir,
+            localfs::localfs_delete,
+            localfs::localfs_grep,
+            localfs::localfs_copy,
             sysmon::sys_stats,
             config::saved_sessions_list,
             config::saved_sessions_save,

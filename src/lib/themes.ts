@@ -157,6 +157,43 @@ export const THEMES: Record<string, AppTheme> = {
       accent: "#0969da",
     },
   },
+  "sharp-dark": {
+    id: "sharp-dark",
+    label: "Sharp Dark",
+    xterm: {
+      background: "#0a0e14",
+      foreground: "#d3e0f2",
+      cursor: "#6cb6ff",
+      selectionBackground: "#1b3a5f",
+      black: "#3b4252",
+      red: "#ff6b6b",
+      green: "#7ee787",
+      yellow: "#f2cc60",
+      blue: "#6cb6ff",
+      magenta: "#d2a8ff",
+      cyan: "#76dbd9",
+      white: "#c8d3e0",
+      brightBlack: "#5c6773",
+      brightRed: "#ffa198",
+      brightGreen: "#a4f2b8",
+      brightYellow: "#ffe08a",
+      brightBlue: "#a8d3ff",
+      brightMagenta: "#e2c5ff",
+      brightCyan: "#a0f0ee",
+      brightWhite: "#f0f6fc",
+    },
+    monaco: "sharp-dark",
+    chrome: {
+      background: "#0a0e14",
+      panel: "#10151d",
+      panelAlt: "#161d28",
+      // Signature of this theme: crisp, high-contrast light-blue outlines.
+      border: "#6cb6ff",
+      foreground: "#d3e0f2",
+      dim: "#7a8699",
+      accent: "#2f81f7",
+    },
+  },
 };
 
 export const DEFAULT_THEME_ID = "tokyo-night";

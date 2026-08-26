@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import MdiIcon from "@mdi/react";
@@ -23,23 +23,84 @@ import {
   mdiUpload,
 } from "@mdi/js";
 import type { SftpDirListing, SftpEntry, SshGrepHit } from "../lib/types";
-import { openSshTab, resolveSavedSessionConfig } from "../state/sessions";
+import { openLocalTab, openSshTab, resolveSavedSessionConfig } from "../state/sessions";
 import { useAppStore } from "../state/store";
+import Modal from "./ui/Modal";
+import { Menu, MenuItem } from "./ui/Menu";
 
 // Monaco is heavy (~3 MB): split it out of the main bundle and load it only
 // when a file is actually opened.
 const FileViewer = lazy(() => import("./FileViewer"));
 
 interface SftpPanelProps {
-  connKey: string;
-  /** Latest cwd reported by the active terminal (OSC 7); panel follows it. */
-  terminalCwd?: string;
+  /** SSH connection key; undefined drives the panel against the local
+   *  filesystem (local terminal panes). */
+  connKey?: string;
+  /** Backend session whose cwd the panel follows (OSC 7). The cwd is read
+   *  from the store inside the panel so other sessions' updates never
+   *  re-render it. */
+  sessionId?: string;
   /**
    * Connection health of the driving pane. A reconnect replaces the backend
    * connection under the same connKey, so the panel reloads when the pane
    * returns to live after a reconnect.
    */
   connAlive?: boolean;
+}
+
+/**
+ * Filesystem operations for one panel target: SFTP commands for SSH
+ * connections, localfs commands for local panes. The two adapters share one
+ * shape so the component below is target-agnostic.
+ */
+function buildFsApi(connKey: string | undefined) {
+  if (connKey) {
+    return {
+      list: (path: string) =>
+        invoke<SftpDirListing>("sftp_list_dir", { connKey, path }),
+      writeText: (path: string, content: string) =>
+        invoke<void>("sftp_write_text", { connKey, remotePath: path, content }),
+      rename: (oldPath: string, newPath: string) =>
+        invoke<void>("sftp_rename", { connKey, oldPath, newPath }),
+      mkdir: (path: string) => invoke<void>("sftp_mkdir", { connKey, path }),
+      remove: (path: string, isDir: boolean) =>
+        invoke<void>("sftp_delete", { connKey, path, isDir }),
+      grep: (path: string, query: string) =>
+        invoke<SshGrepHit[]>("ssh_grep", { connKey, path, query }),
+      pull: (remotePath: string, localPath: string, fileName: string) =>
+        invoke<void>("sftp_download", {
+          connKey,
+          remotePath,
+          localPath,
+          transferId: crypto.randomUUID(),
+          fileName,
+        }),
+      push: (localPath: string, remotePath: string, fileName: string) =>
+        invoke<void>("sftp_upload", {
+          connKey,
+          localPath,
+          remotePath,
+          transferId: crypto.randomUUID(),
+          fileName,
+        }),
+    };
+  }
+  return {
+    list: (path: string) => invoke<SftpDirListing>("localfs_list_dir", { path }),
+    writeText: (path: string, content: string) =>
+      invoke<void>("localfs_write_text", { path, content }),
+    rename: (oldPath: string, newPath: string) =>
+      invoke<void>("localfs_rename", { oldPath, newPath }),
+    mkdir: (path: string) => invoke<void>("localfs_mkdir", { path }),
+    remove: (path: string, isDir: boolean) =>
+      invoke<void>("localfs_delete", { path, isDir }),
+    grep: (path: string, query: string) =>
+      invoke<SshGrepHit[]>("localfs_grep", { path, query }),
+    pull: (from: string, to: string, _fileName: string) =>
+      invoke<void>("localfs_copy", { from, to }),
+    push: (from: string, to: string, _fileName: string) =>
+      invoke<void>("localfs_copy", { from, to }),
+  };
 }
 
 function formatSize(size?: number | null): string {
@@ -112,16 +173,40 @@ interface PromptState {
   value: string;
 }
 
-const menuItemClass =
-  "flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-(--text) hover:bg-white/5";
 
-/** Remote file browser bound to one SSH connection. */
-export default function SftpPanel({ connKey, terminalCwd, connAlive = true }: SftpPanelProps) {
+/** File browser bound to one SSH connection (remote) or the local machine. */
+export default function SftpPanel({ connKey, sessionId, connAlive = true }: SftpPanelProps) {
+  const fs = useMemo(() => buildFsApi(connKey), [connKey]);
+  // Follow the terminal's cwd without subscribing to the whole map: only
+  // this session's value re-renders the panel.
+  const terminalCwd = useAppStore((s) =>
+    sessionId ? s.cwdBySession[sessionId] : undefined,
+  );
   const [path, setPath] = useState("~");
   const [entries, setEntries] = useState<SftpEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [viewing, setViewing] = useState<{ path: string; line?: number } | null>(null);
+  // Open file-editor windows. Modeless and stacked: several files can be
+  // open at once, each in its own draggable FloatingWindow.
+  const [viewers, setViewers] = useState<
+    { key: string; path: string; line?: number; x: number; y: number; z: number }[]
+  >([]);
+  const nextZ = useRef(30);
+  const nextCascade = useRef(0);
+  const openViewer = (path: string, line?: number) => {
+    setViewers((prev) => {
+      const existing = prev.find((v) => v.path === path);
+      const z = ++nextZ.current;
+      if (existing) {
+        // Reopen (e.g. a grep hit): jump to the line and raise the window.
+        return prev.map((v) => (v.path === path ? { ...v, line, z } : v));
+      }
+      const cascade = (nextCascade.current++ % 6) * 28;
+      const x = Math.min(140 + cascade, Math.max(16, window.innerWidth - 720));
+      const y = Math.min(70 + cascade, Math.max(16, window.innerHeight - 520));
+      return [...prev, { key: crypto.randomUUID(), path, line, x, y, z }];
+    });
+  };
   const [selected, setSelected] = useState<string | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [prompt, setPrompt] = useState<PromptState | null>(null);
@@ -137,10 +222,7 @@ export default function SftpPanel({ connKey, terminalCwd, connAlive = true }: Sf
       setLoading(true);
       setMessage(null);
       try {
-        const listing = await invoke<SftpDirListing>("sftp_list_dir", {
-          connKey,
-          path: p,
-        });
+        const listing = await fs.list(p);
         setPath(listing.path);
         setEntries(listing.entries);
         setSelected(null);
@@ -150,7 +232,7 @@ export default function SftpPanel({ connKey, terminalCwd, connAlive = true }: Sf
         setLoading(false);
       }
     },
-    [connKey],
+    [fs],
   );
 
   useEffect(() => {
@@ -183,7 +265,7 @@ export default function SftpPanel({ connKey, terminalCwd, connAlive = true }: Sf
 
   const openEntry = (e: SftpEntry) => {
     if (e.isDir) load(e.path);
-    else setViewing({ path: e.path });
+    else openViewer(e.path);
   };
 
   const download = async (entry: SftpEntry) => {
@@ -191,13 +273,7 @@ export default function SftpPanel({ connKey, terminalCwd, connAlive = true }: Sf
     if (!local) return;
     setMessage(`Downloading ${entry.name}…`);
     try {
-      await invoke("sftp_download", {
-        connKey,
-        remotePath: entry.path,
-        localPath: local,
-        transferId: crypto.randomUUID(),
-        fileName: entry.name,
-      });
+      await fs.pull(entry.path, local, entry.name);
       setMessage(`Downloaded ${entry.name}`);
     } catch (err) {
       setMessage(String(err));
@@ -210,13 +286,7 @@ export default function SftpPanel({ connKey, terminalCwd, connAlive = true }: Sf
     const remote = `${path.replace(/\/+$/, "")}/${baseName(local)}`;
     setMessage(`Uploading ${baseName(local)}…`);
     try {
-      await invoke("sftp_upload", {
-        connKey,
-        localPath: local,
-        remotePath: remote,
-        transferId: crypto.randomUUID(),
-        fileName: baseName(local),
-      });
+      await fs.push(local, remote, baseName(local));
       setMessage(`Uploaded ${baseName(local)}`);
       await load(path);
     } catch (err) {
@@ -233,11 +303,7 @@ export default function SftpPanel({ connKey, terminalCwd, connAlive = true }: Sf
     setConfirmDelete(null);
     setMessage(`Deleting ${entry.name}…`);
     try {
-      await invoke("sftp_delete", {
-        connKey,
-        path: entry.path,
-        isDir: entry.isDir,
-      });
+      await fs.remove(entry.path, entry.isDir);
       setMessage(`Deleted ${entry.name}`);
       await load(path);
     } catch (err) {
@@ -256,25 +322,14 @@ export default function SftpPanel({ connKey, terminalCwd, connAlive = true }: Sf
     try {
       if (prompt.mode === "rename" && prompt.entry) {
         const newPath = `${parentDir(prompt.entry.path).replace(/\/+$/, "")}/${name}`;
-        await invoke("sftp_rename", {
-          connKey,
-          oldPath: prompt.entry.path,
-          newPath,
-        });
+        await fs.rename(prompt.entry.path, newPath);
         setMessage(`Renamed to ${name}`);
       } else if (prompt.mode === "newFolder") {
-        await invoke("sftp_mkdir", {
-          connKey,
-          path: `${path.replace(/\/+$/, "")}/${name}`,
-        });
+        await fs.mkdir(`${path.replace(/\/+$/, "")}/${name}`);
         setMessage(`Created ${name}`);
       } else {
-        // New file: sftp_write_text creates (or truncates) the file.
-        await invoke("sftp_write_text", {
-          connKey,
-          remotePath: `${path.replace(/\/+$/, "")}/${name}`,
-          content: "",
-        });
+        // New file: writeText creates (or truncates) the file.
+        await fs.writeText(`${path.replace(/\/+$/, "")}/${name}`, "");
         setMessage(`Created ${name}`);
       }
       await load(path);
@@ -283,10 +338,19 @@ export default function SftpPanel({ connKey, terminalCwd, connAlive = true }: Sf
     }
   };
 
-  // Open a new terminal tab on this host, landed in the given directory.
-  // Reuses the connect config of any live pane on this connection; the fresh
-  // pane gets its own tmux session (tmuxSession reset).
+  // Open a new terminal tab on this target, landed in the given directory.
+  // Local panels spawn a local shell directly; remote panels reuse the
+  // connect config of any live pane on this connection, and the fresh pane
+  // gets its own tmux session (tmuxSession reset).
   const openTerminalHere = async (dir: string) => {
+    if (!connKey) {
+      try {
+        await openLocalTab(dir);
+      } catch (err) {
+        setMessage(String(err));
+      }
+      return;
+    }
     const { tabs } = useAppStore.getState();
     for (const tab of tabs) {
       for (const pane of tab.panes) {
@@ -318,11 +382,7 @@ export default function SftpPanel({ connKey, terminalCwd, connAlive = true }: Sf
     setSearching(true);
     setMessage(null);
     try {
-      const result = await invoke<SshGrepHit[]>("ssh_grep", {
-        connKey,
-        path,
-        query: q,
-      });
+      const result = await fs.grep(path, q);
       setHits(result);
     } catch (err) {
       setMessage(String(err));
@@ -368,29 +428,17 @@ export default function SftpPanel({ connKey, terminalCwd, connAlive = true }: Sf
   };
 
   const iconBtn =
-    "flex items-center gap-1 rounded px-2 py-1 text-xs text-(--text) hover:bg-white/10 disabled:opacity-40";
+    "flex items-center gap-1 rounded px-2 py-1 text-xs text-(--text) hover:bg-(--hover-strong) disabled:opacity-40";
 
-  const MenuItem = ({
-    icon,
-    label,
-    onClick,
-    danger = false,
-  }: {
-    icon: string;
-    label: string;
-    onClick: () => void;
-    danger?: boolean;
-  }) => (
-    <button
+  // Menu entry that dismisses the dropdown before running the action.
+  const MItem = (props: { icon: string; label: string; onClick: () => void; danger?: boolean }) => (
+    <MenuItem
+      {...props}
       onClick={() => {
         setMenu(null);
-        onClick();
+        props.onClick();
       }}
-      className={`${menuItemClass} ${danger ? "text-red-400" : ""}`}
-    >
-      <MdiIcon path={icon} size="14px" />
-      {label}
-    </button>
+    />
   );
 
   const promptTitle =
@@ -474,8 +522,8 @@ export default function SftpPanel({ connKey, terminalCwd, connAlive = true }: Sf
           {hits.map((h, i) => (
             <div
               key={`${h.path}:${h.line}:${i}`}
-              onClick={() => setViewing({ path: h.path, line: h.line })}
-              className="cursor-pointer rounded px-2 py-1 text-xs hover:bg-white/5"
+              onClick={() => openViewer(h.path, h.line)}
+              className="cursor-pointer rounded px-2 py-1 text-xs hover:bg-(--hover)"
               title={`${h.path}:${h.line}`}
             >
               <span className="block truncate text-(--text)">
@@ -507,11 +555,11 @@ export default function SftpPanel({ connKey, terminalCwd, connAlive = true }: Sf
                 key={e.path}
                 onClick={() => {
                   setSelected(e.path);
-                  if (!e.isDir) setViewing({ path: e.path });
+                  if (!e.isDir) openViewer(e.path);
                 }}
                 onDoubleClick={() => e.isDir && load(e.path)}
                 onContextMenu={(ev) => openMenu(ev, e)}
-                className={`flex cursor-pointer items-center justify-between rounded px-2 py-1 text-sm hover:bg-white/5 ${
+                className={`flex cursor-pointer items-center justify-between rounded px-2 py-1 text-sm hover:bg-(--hover) ${
                   selected === e.path ? "bg-white/10" : ""
                 }`}
                 title={
@@ -534,7 +582,7 @@ export default function SftpPanel({ connKey, terminalCwd, connAlive = true }: Sf
                   </span>
                   {!e.isDir && (
                     <button
-                      className="flex items-center rounded px-1 text-(--text-dim) hover:bg-white/10 hover:text-(--text)"
+                      className="flex items-center rounded px-1 text-(--text-dim) hover:bg-(--hover-strong) hover:text-(--text)"
                       onClick={(ev) => {
                         ev.stopPropagation();
                         download(e);
@@ -557,220 +605,196 @@ export default function SftpPanel({ connKey, terminalCwd, connAlive = true }: Sf
       )}
 
       {menu && (
-        <>
-          {/* Click-away layer closing the menu */}
-          <div
-            className="fixed inset-0 z-40"
-            onClick={() => setMenu(null)}
-            onContextMenu={(ev) => {
-              ev.preventDefault();
-              setMenu(null);
-            }}
-          />
-          <div
-            className="fixed z-50 w-52 rounded border border-(--border) bg-(--panel-alt) py-1 shadow-xl"
-            style={{ left: menu.x, top: menu.y }}
-          >
-            {menu.entry ? (
-              menu.entry.isDir ? (
-                <>
-                  <MenuItem
-                    icon={mdiFolderOpenOutline}
-                    label="Open"
-                    onClick={() => load(menu.entry!.path)}
-                  />
-                  <MenuItem
-                    icon={mdiConsoleLine}
-                    label="New terminal here"
-                    onClick={() => void openTerminalHere(menu.entry!.path)}
-                  />
-                  <MenuItem
-                    icon={mdiPencilOutline}
-                    label="Rename"
-                    onClick={() =>
-                      setPrompt({
-                        mode: "rename",
-                        entry: menu.entry!,
-                        value: menu.entry!.name,
-                      })
-                    }
-                  />
-                  <MenuItem
-                    icon={mdiDeleteOutline}
-                    label="Delete"
-                    danger
-                    onClick={() => setConfirmDelete(menu.entry!)}
-                  />
-                  <MenuItem
-                    icon={mdiContentCopy}
-                    label="Copy path"
-                    onClick={() => copyPath(menu.entry!.path)}
-                  />
-                </>
-              ) : (
-                <>
-                  <MenuItem
-                    icon={mdiFileOutline}
-                    label="Open"
-                    onClick={() => setViewing({ path: menu.entry!.path })}
-                  />
-                  <MenuItem
-                    icon={mdiDownload}
-                    label="Download"
-                    onClick={() => void download(menu.entry!)}
-                  />
-                  <MenuItem
-                    icon={mdiPencilOutline}
-                    label="Rename"
-                    onClick={() =>
-                      setPrompt({
-                        mode: "rename",
-                        entry: menu.entry!,
-                        value: menu.entry!.name,
-                      })
-                    }
-                  />
-                  <MenuItem
-                    icon={mdiDeleteOutline}
-                    label="Delete"
-                    danger
-                    onClick={() => setConfirmDelete(menu.entry!)}
-                  />
-                  <MenuItem
-                    icon={mdiContentCopy}
-                    label="Copy path"
-                    onClick={() => copyPath(menu.entry!.path)}
-                  />
-                </>
-              )
-            ) : (
+        <Menu
+          x={menu.x}
+          y={menu.y}
+          width={208}
+          onClose={() => setMenu(null)}
+        >
+          {menu.entry ? (
+            menu.entry.isDir ? (
               <>
-                <MenuItem
-                  icon={mdiFilePlusOutline}
-                  label="New file"
-                  onClick={() => setPrompt({ mode: "newFile", value: "" })}
+                <MItem
+                  icon={mdiFolderOpenOutline}
+                  label="Open"
+                  onClick={() => load(menu.entry!.path)}
                 />
-                <MenuItem
-                  icon={mdiFolderPlusOutline}
-                  label="New folder"
-                  onClick={() => setPrompt({ mode: "newFolder", value: "" })}
-                />
-                <MenuItem
+                <MItem
                   icon={mdiConsoleLine}
                   label="New terminal here"
-                  onClick={() => void openTerminalHere(path)}
+                  onClick={() => void openTerminalHere(menu.entry!.path)}
                 />
-                <MenuItem
-                  icon={mdiUpload}
-                  label="Upload"
-                  onClick={() => void upload()}
+                <MItem
+                  icon={mdiPencilOutline}
+                  label="Rename"
+                  onClick={() =>
+                    setPrompt({
+                      mode: "rename",
+                      entry: menu.entry!,
+                      value: menu.entry!.name,
+                    })
+                  }
                 />
-                <MenuItem
-                  icon={mdiRefresh}
-                  label="Refresh"
-                  onClick={() => void load(path)}
+                <MItem
+                  icon={mdiDeleteOutline}
+                  label="Delete"
+                  danger
+                  onClick={() => setConfirmDelete(menu.entry!)}
                 />
-                <MenuItem
+                <MItem
                   icon={mdiContentCopy}
                   label="Copy path"
-                  onClick={() => copyPath(path)}
+                  onClick={() => copyPath(menu.entry!.path)}
                 />
               </>
-            )}
-          </div>
-        </>
+            ) : (
+              <>
+                <MItem
+                  icon={mdiFileOutline}
+                  label="Open"
+                  onClick={() => openViewer(menu.entry!.path)}
+                />
+                <MItem
+                  icon={mdiDownload}
+                  label="Download"
+                  onClick={() => void download(menu.entry!)}
+                />
+                <MItem
+                  icon={mdiPencilOutline}
+                  label="Rename"
+                  onClick={() =>
+                    setPrompt({
+                      mode: "rename",
+                      entry: menu.entry!,
+                      value: menu.entry!.name,
+                    })
+                  }
+                />
+                <MItem
+                  icon={mdiDeleteOutline}
+                  label="Delete"
+                  danger
+                  onClick={() => setConfirmDelete(menu.entry!)}
+                />
+                <MItem
+                  icon={mdiContentCopy}
+                  label="Copy path"
+                  onClick={() => copyPath(menu.entry!.path)}
+                />
+              </>
+            )
+          ) : (
+            <>
+              <MItem
+                icon={mdiFilePlusOutline}
+                label="New file"
+                onClick={() => setPrompt({ mode: "newFile", value: "" })}
+              />
+              <MItem
+                icon={mdiFolderPlusOutline}
+                label="New folder"
+                onClick={() => setPrompt({ mode: "newFolder", value: "" })}
+              />
+              <MItem
+                icon={mdiConsoleLine}
+                label="New terminal here"
+                onClick={() => void openTerminalHere(path)}
+              />
+              <MItem icon={mdiUpload} label="Upload" onClick={() => void upload()} />
+              <MItem
+                icon={mdiRefresh}
+                label="Refresh"
+                onClick={() => void load(path)}
+              />
+              <MItem icon={mdiContentCopy} label="Copy path" onClick={() => copyPath(path)} />
+            </>
+          )}
+        </Menu>
       )}
 
       {prompt && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-          onClick={() => setPrompt(null)}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="w-80 rounded-lg border border-(--border) bg-(--panel-alt) p-4 shadow-xl"
-          >
-            <p className="mb-2 text-sm text-(--text)">{promptTitle}</p>
-            <input
-              autoFocus
-              value={prompt.value}
-              onChange={(e) => setPrompt({ ...prompt, value: e.target.value })}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void submitPrompt();
-                if (e.key === "Escape") setPrompt(null);
-              }}
-              className="w-full rounded border border-(--border) bg-transparent px-2 py-1.5 text-sm text-(--text) outline-none focus:border-(--accent)"
-            />
-            <div className="mt-3 flex justify-end gap-2">
-              <button
-                onClick={() => setPrompt(null)}
-                className="rounded px-3 py-1 text-xs text-(--text-dim) hover:bg-white/10"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => void submitPrompt()}
-                className="rounded bg-(--accent) px-3 py-1 text-xs text-white hover:bg-[color-mix(in_srgb,var(--accent)_85%,white)]"
-              >
-                OK
-              </button>
-            </div>
+        <Modal onClose={() => setPrompt(null)} className="w-80 gap-2 p-4">
+          <p className="text-sm text-(--text)">{promptTitle}</p>
+          <input
+            autoFocus
+            value={prompt.value}
+            onChange={(e) => setPrompt({ ...prompt, value: e.target.value })}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void submitPrompt();
+            }}
+            className="w-full rounded border border-(--border) bg-transparent px-2 py-1.5 text-sm text-(--text) outline-none focus:border-(--accent)"
+          />
+          <div className="mt-2 flex justify-end gap-2">
+            <button
+              onClick={() => setPrompt(null)}
+              className="rounded px-3 py-1 text-xs text-(--text-dim) hover:bg-(--hover-strong)"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => void submitPrompt()}
+              className="rounded bg-(--accent) px-3 py-1 text-xs text-white hover:bg-[color-mix(in_srgb,var(--accent)_85%,white)]"
+            >
+              OK
+            </button>
           </div>
-        </div>
+        </Modal>
       )}
 
       {confirmDelete && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-          onClick={() => setConfirmDelete(null)}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="w-96 rounded-lg border border-(--border) bg-(--panel-alt) p-4 shadow-xl"
-          >
-            <p className="mb-1 text-sm text-(--text)">
-              Delete {confirmDelete.isDir ? "directory" : "file"}{" "}
-              <span className="font-semibold">{confirmDelete.name}</span>?
-            </p>
-            <p className="mb-3 truncate text-xs text-(--text-dim)" title={confirmDelete.path}>
-              {confirmDelete.path}
-              {confirmDelete.isDir && " (recursively)"}
-            </p>
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setConfirmDelete(null)}
-                className="rounded px-3 py-1 text-xs text-(--text-dim) hover:bg-white/10"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => void doDelete(confirmDelete)}
-                className="rounded bg-red-600 px-3 py-1 text-xs text-white hover:bg-red-500"
-              >
-                Delete
-              </button>
-            </div>
+        <Modal onClose={() => setConfirmDelete(null)} className="w-96 p-4">
+          <p className="mb-1 text-sm text-(--text)">
+            Delete {confirmDelete.isDir ? "directory" : "file"}{" "}
+            <span className="font-semibold">{confirmDelete.name}</span>?
+          </p>
+          <p className="mb-3 truncate text-xs text-(--text-dim)" title={confirmDelete.path}>
+            {confirmDelete.path}
+            {confirmDelete.isDir && " (recursively)"}
+          </p>
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={() => setConfirmDelete(null)}
+              className="rounded px-3 py-1 text-xs text-(--text-dim) hover:bg-(--hover-strong)"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => void doDelete(confirmDelete)}
+              className="rounded bg-red-600 px-3 py-1 text-xs text-white hover:bg-red-500"
+            >
+              Delete
+            </button>
           </div>
-        </div>
+        </Modal>
       )}
 
-      {viewing && (
+      {viewers.map((v) => (
         <Suspense
+          key={v.key}
           fallback={
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 text-sm text-(--text-dim)">
+            <div className="fixed inset-0 z-50 flex items-center justify-center text-sm text-(--text-dim)">
               Loading editor…
             </div>
           }
         >
           <FileViewer
-            key={`${viewing.path}:${viewing.line ?? 0}`}
             connKey={connKey}
-            remotePath={viewing.path}
-            line={viewing.line}
-            onClose={() => setViewing(null)}
+            remotePath={v.path}
+            line={v.line}
+            initialX={v.x}
+            initialY={v.y}
+            z={v.z}
+            onFocus={() =>
+              setViewers((prev) =>
+                prev.map((w) =>
+                  w.key === v.key ? { ...w, z: ++nextZ.current } : w,
+                ),
+              )
+            }
+            onClose={() => setViewers((prev) => prev.filter((w) => w.key !== v.key))}
           />
         </Suspense>
-      )}
+      ))}
     </aside>
   );
 }

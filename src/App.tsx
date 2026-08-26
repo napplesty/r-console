@@ -18,6 +18,8 @@ import StatusBar from "./components/StatusBar";
 import HostKeyDialog from "./components/HostKeyDialog";
 import VaultDialog from "./components/VaultDialog";
 import CommandPalette from "./components/CommandPalette";
+import SettingsDialog from "./components/SettingsDialog";
+import FpsMeter from "./components/FpsMeter";
 import Welcome from "./components/Welcome";
 
 interface VaultStatus {
@@ -30,7 +32,6 @@ function App() {
   const activeTabId = useAppStore((s) => s.activeTabId);
   const closePane = useAppStore((s) => s.closePane);
   const setActivePane = useAppStore((s) => s.setActivePane);
-  const cwdBySession = useAppStore((s) => s.cwdBySession);
   const gitPanelOpen = useAppStore((s) => s.gitPanelOpen);
   const activeTab = tabs.find((t) => t.id === activeTabId);
   const pane = activeTab ? activePane(activeTab) : undefined;
@@ -75,6 +76,12 @@ function App() {
         e.preventDefault();
         const s = useAppStore.getState();
         s.setPaletteOpen(!s.paletteOpen);
+        return;
+      }
+      if (key === ",") {
+        e.preventDefault();
+        const s = useAppStore.getState();
+        s.setSettingsOpen(!s.settingsOpen);
         return;
       }
 
@@ -173,17 +180,19 @@ function App() {
           </main>
         </div>
 
-        {pane?.kind === "ssh" && pane.connKey && (
+        {/* The file panel serves both targets: SSH panes browse the remote
+            host over SFTP, local panes browse the local filesystem. */}
+        {pane && (pane.kind === "local" || pane.connKey) && (
           <SftpPanel
-            connKey={pane.connKey}
-            terminalCwd={cwdBySession[pane.sessionId]}
+            connKey={pane.kind === "ssh" ? pane.connKey : undefined}
+            sessionId={pane.sessionId}
             connAlive={!pane.status || pane.status === "live"}
           />
         )}
         {gitPanelOpen && pane && (
           <GitPanel
             connKey={pane.kind === "ssh" ? pane.connKey : undefined}
-            terminalCwd={cwdBySession[pane.sessionId]}
+            sessionId={pane.sessionId}
             onClose={() => useAppStore.getState().setGitPanelOpen(false)}
           />
         )}
@@ -194,6 +203,8 @@ function App() {
       <HostKeyDialog />
       <VaultDialog />
       <CommandPalette />
+      <SettingsDialog />
+      <FpsMeter />
     </div>
   );
 }

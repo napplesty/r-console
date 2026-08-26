@@ -11,6 +11,37 @@
   --font-mono:
     "JetBrains Mono", "SF Mono", SFMono-Regular, Menlo, Consolas,
     "Liberation Mono", "Courier New", monospace;
+  /*
+   * Derived interaction tokens. --hover mixes the theme text color, so it
+   * works unchanged on dark and light themes (unlike white overlays).
+   */
+  --hover: color-mix(in srgb, var(--text) 8%, transparent);
+  --hover-strong: color-mix(in srgb, var(--text) 14%, transparent);
+}
+
+/* Elevated surfaces (menus, modals): shared depth treatment. */
+.rc-elevate {
+  box-shadow:
+    0 4px 6px -2px rgb(0 0 0 / 0.12),
+    0 12px 28px -6px rgb(0 0 0 / 0.35);
+}
+
+html[data-theme="one-light"] .rc-elevate,
+html[data-theme="github-light"] .rc-elevate {
+  box-shadow:
+    0 4px 6px -2px rgb(0 0 0 / 0.06),
+    0 12px 28px -6px rgb(0 0 0 / 0.16);
+}
+
+/* Menu rows share one hover treatment. */
+.rc-menu-item:not(:disabled):hover {
+  background: var(--hover);
+}
+
+/* Visible keyboard focus for every interactive element. */
+:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  outline-offset: 1px;
 }
 
 /* Slim, unobtrusive scrollbars that only stand out on hover. */
@@ -115,6 +146,16 @@ html[data-theme="github-light"] {
   --text: #1f2328;
   --text-dim: #59636e;
   --accent: #0969da;
+}
+
+html[data-theme="sharp-dark"] {
+  --bg: #0a0e14;
+  --panel: #10151d;
+  --panel-alt: #161d28;
+  --border: #6cb6ff;
+  --text: #d3e0f2;
+  --text-dim: #7a8699;
+  --accent: #2f81f7;
 }
 
 html,

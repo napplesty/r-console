@@ -265,7 +265,7 @@ export default function ConnectDialog({
           <button
             type="button"
             onClick={onClose}
-            className="rounded px-3 py-1.5 text-sm text-(--text-dim) hover:bg-white/5"
+            className="rounded px-3 py-1.5 text-sm text-(--text-dim) hover:bg-(--hover)"
           >
             Cancel
           </button>

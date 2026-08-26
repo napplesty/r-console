@@ -125,4 +125,26 @@ monaco.editor.defineTheme("github-light", {
   },
 });
 
+monaco.editor.defineTheme("sharp-dark", {
+  base: "vs-dark",
+  inherit: true,
+  rules: [
+    { token: "", foreground: "d3e0f2" },
+    { token: "comment", foreground: "5c6a80", fontStyle: "italic" },
+    { token: "keyword", foreground: "6cb6ff" },
+    { token: "string", foreground: "8ce99a" },
+    { token: "number", foreground: "ffd479" },
+    { token: "type", foreground: "76dbd9" },
+    { token: "identifier", foreground: "d3e0f2" },
+    { token: "identifier.function", foreground: "d2a8ff" },
+  ],
+  colors: {
+    "editor.background": "#0a0e14",
+    "editor.foreground": "#d3e0f2",
+    "editor.lineHighlightBackground": "#101828",
+    "editor.selectionBackground": "#1b3a5f",
+    "editorLineNumber.foreground": "#42506b",
+  },
+});
+
 export { monaco };

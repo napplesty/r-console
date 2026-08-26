@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import MdiIcon from "@mdi/react";
 import {
   mdiBroadcast,
+  mdiCogOutline,
   mdiConsole,
   mdiContentDuplicate,
   mdiDotsVertical,
@@ -19,8 +20,8 @@ import {
   sshConfigAsSaved,
   tryConnectSaved,
 } from "../state/sessions";
-import { THEMES } from "../lib/themes";
 import ConnectDialog from "./ConnectDialog";
+import { Menu, MenuItem, MenuDivider } from "./ui/Menu";
 import type { SavedSession, SplitDirection } from "../lib/types";
 
 /** Where the split-target dropdown is anchored, and for which direction. */
@@ -40,14 +41,7 @@ export default function TabBar() {
   const renameTab = useAppStore((s) => s.renameTab);
   const closeTab = useAppStore((s) => s.closeTab);
   const toggleBroadcast = useAppStore((s) => s.toggleBroadcast);
-  const themeId = useAppStore((s) => s.themeId);
-  const setThemeId = useAppStore((s) => s.setThemeId);
-  const scrollback = useAppStore((s) => s.scrollback);
-  const setScrollback = useAppStore((s) => s.setScrollback);
-  const followCwd = useAppStore((s) => s.followCwd);
-  const setFollowCwd = useAppStore((s) => s.setFollowCwd);
-  const highlightEnabled = useAppStore((s) => s.highlightEnabled);
-  const setHighlightEnabled = useAppStore((s) => s.setHighlightEnabled);
+  const setSettingsOpen = useAppStore((s) => s.setSettingsOpen);
   const savedSessions = useAppStore((s) => s.savedSessions);
   const sshConfigHosts = useAppStore((s) => s.sshConfigHosts);
 
@@ -62,8 +56,8 @@ export default function TabBar() {
     value: string;
   } | null>(null);
   // Overflow handling: when the row is too narrow, the secondary toolbar
-  // controls (split/broadcast/scrollback/follow-cwd/theme) collapse into a
-  // single "⋯" dropdown. The tab strip and the "+" button always stay put.
+  // controls (split/broadcast/settings) collapse into a single "⋯"
+  // dropdown. The tab strip and the "+" button always stay put.
   const [collapsed, setCollapsed] = useState(false);
   const [overflowMenu, setOverflowMenu] = useState<{ x: number; y: number } | null>(
     null,
@@ -117,7 +111,7 @@ export default function TabBar() {
     `rounded p-1 ${
       disabled
         ? "cursor-default opacity-40"
-        : "text-(--text-dim) hover:bg-white/5 hover:text-(--text)"
+        : "text-(--text-dim) hover:bg-(--hover) hover:text-(--text)"
     }`;
 
   const openSplitMenu = (
@@ -160,8 +154,6 @@ export default function TabBar() {
     }
   };
 
-  const menuItemClass =
-    "flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-(--text) hover:bg-white/5";
 
   return (
     <div
@@ -178,10 +170,10 @@ export default function TabBar() {
           <div
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`group flex min-w-[120px] max-w-[240px] cursor-pointer items-center gap-2 rounded px-3 py-1 text-sm ${
+            className={`group flex min-w-[120px] max-w-[240px] cursor-pointer items-center gap-2 rounded-md px-3 py-1 text-sm transition-colors ${
               tab.id === activeTabId
-                ? "bg-(--panel-alt) text-(--text)"
-                : "text-(--text-dim) hover:bg-white/5"
+                ? "bg-(--panel-alt) text-(--text) shadow-[inset_0_2px_0_0_var(--accent)]"
+                : "text-(--text-dim) hover:bg-(--hover) hover:text-(--text)"
             }`}
           >
             {tab.broadcast && (
@@ -251,7 +243,7 @@ export default function TabBar() {
                 e.stopPropagation();
                 closeTab(tab.id);
               }}
-              className="rounded px-1 text-(--text-dim) opacity-0 group-hover:opacity-100 hover:bg-white/10 hover:text-(--text)"
+              className="rounded px-1 text-(--text-dim) opacity-0 group-hover:opacity-100 hover:bg-(--hover-strong) hover:text-(--text)"
               title="Close tab"
             >
               ×
@@ -264,7 +256,7 @@ export default function TabBar() {
           const rect = e.currentTarget.getBoundingClientRect();
           setNewTabMenu({ x: rect.left, y: rect.bottom + 4 });
         }}
-        className="shrink-0 rounded px-2 py-1 text-(--text-dim) hover:bg-white/5 hover:text-(--text)"
+        className="shrink-0 rounded px-2 py-1 text-(--text-dim) hover:bg-(--hover) hover:text-(--text)"
         title="New session"
       >
         +
@@ -278,7 +270,7 @@ export default function TabBar() {
               y: rect.bottom + 4,
             });
           }}
-          className="shrink-0 rounded p-1 text-(--text-dim) hover:bg-white/5 hover:text-(--text)"
+          className="shrink-0 rounded p-1 text-(--text-dim) hover:bg-(--hover) hover:text-(--text)"
           title="More tab actions"
         >
           <MdiIcon path={mdiDotsVertical} size="16px" />
@@ -308,249 +300,126 @@ export default function TabBar() {
               noActiveTab
                 ? "cursor-default opacity-40"
                 : activeTab.broadcast
-                  ? "text-(--accent) hover:bg-white/5"
-                  : "text-(--text-dim) hover:bg-white/5 hover:text-(--text)"
+                  ? "text-(--accent) hover:bg-(--hover)"
+                  : "text-(--text-dim) hover:bg-(--hover) hover:text-(--text)"
             }`}
             title="Broadcast input to all panes (MultiExec)"
           >
             <MdiIcon path={mdiBroadcast} size="16px" />
           </button>
-          <label
-            className="flex shrink-0 items-center gap-1 text-xs text-(--text-dim)"
-            title="Scrollback lines (applies to terminals opened afterwards)"
+          <button
+            onClick={() => setSettingsOpen(true)}
+            className="rounded p-1 text-(--text-dim) hover:bg-(--hover) hover:text-(--text)"
+            title="Settings (Cmd/Ctrl+,)"
           >
-            Scrollback
-            <input
-              type="number"
-              min={100}
-              step={1000}
-              value={scrollback}
-              onChange={(e) => setScrollback(Number(e.target.value))}
-              className="w-20 rounded border border-(--border) bg-transparent px-1.5 py-0.5 text-(--text-dim) outline-none focus:border-(--accent)"
-            />
-          </label>
-          <label
-            className="flex shrink-0 cursor-pointer items-center gap-1 text-xs text-(--text-dim) hover:text-(--text)"
-            title="Let the SFTP panel follow the terminal's working directory (OSC 7)"
-          >
-            <input
-              type="checkbox"
-              checked={followCwd}
-              onChange={(e) => setFollowCwd(e.target.checked)}
-              className="accent-(--accent)"
-            />
-            Follow cwd
-          </label>
-          <label
-            className="flex shrink-0 cursor-pointer items-center gap-1 text-xs text-(--text-dim) hover:text-(--text)"
-            title="Highlight keywords (errors, warnings, IPs) in terminal output"
-          >
-            <input
-              type="checkbox"
-              checked={highlightEnabled}
-              onChange={(e) => setHighlightEnabled(e.target.checked)}
-              className="accent-(--accent)"
-            />
-            Highlight
-          </label>
-          <select
-            value={themeId}
-            onChange={(e) => setThemeId(e.target.value)}
-            className="shrink-0 cursor-pointer rounded border border-(--border) bg-transparent px-1.5 py-0.5 text-xs text-(--text-dim) hover:text-(--text)"
-            title="Color theme"
-          >
-            {Object.values(THEMES).map((theme) => (
-              <option
-                key={theme.id}
-                value={theme.id}
-                className="bg-(--panel-alt) text-(--text)"
-              >
-                {theme.label}
-              </option>
-            ))}
-          </select>
+            <MdiIcon path={mdiCogOutline} size="16px" />
+          </button>
         </div>
       )}
 
       {overflowMenu && (
-        <>
-          {/* Click-away layer closing the menu; inputs below stay usable
-              because they sit inside the panel above this layer. */}
-          <div
-            className="fixed inset-0 z-40"
-            onClick={() => setOverflowMenu(null)}
+        <Menu
+          x={overflowMenu.x}
+          y={overflowMenu.y}
+          width={240}
+          onClose={() => setOverflowMenu(null)}
+        >
+          <MenuItem
+            icon={mdiViewSplitVertical}
+            label="Split right…"
+            title="Split right (choose target host)"
+            disabled={noActiveTab}
+            onClick={(e) => {
+              setOverflowMenu(null);
+              openSplitMenu(e, "horizontal");
+            }}
           />
-          <div
-            className="fixed z-50 w-60 rounded border border-(--border) bg-(--panel-alt) py-1 shadow-xl"
-            style={{ left: overflowMenu.x, top: overflowMenu.y }}
-          >
-            <button
-              onClick={(e) => {
-                if (noActiveTab) return;
-                openSplitMenu(e, "horizontal");
-                setOverflowMenu(null);
-              }}
-              className={`${menuItemClass} ${noActiveTab ? "cursor-default opacity-40" : ""}`}
-              title="Split right (choose target host)"
-            >
-              <MdiIcon path={mdiViewSplitVertical} size="14px" />
-              Split right…
-            </button>
-            <button
-              onClick={(e) => {
-                if (noActiveTab) return;
-                openSplitMenu(e, "vertical");
-                setOverflowMenu(null);
-              }}
-              className={`${menuItemClass} ${noActiveTab ? "cursor-default opacity-40" : ""}`}
-              title="Split down (choose target host)"
-            >
-              <MdiIcon path={mdiViewSplitHorizontal} size="14px" />
-              Split down…
-            </button>
-            <button
-              onClick={() => {
-                if (noActiveTab) return;
-                toggleBroadcast(activeTabId!);
-              }}
-              className={`${menuItemClass} ${noActiveTab ? "cursor-default opacity-40" : ""}`}
-              title="Broadcast input to all panes (MultiExec)"
-            >
-              <MdiIcon
-                path={mdiBroadcast}
-                size="14px"
-                className={activeTab?.broadcast ? "text-(--accent)" : ""}
-              />
-              Broadcast input to all panes
-            </button>
-            <label
-              className="mt-1 flex items-center justify-between gap-2 border-t border-(--border) px-3 py-1.5 text-xs text-(--text-dim)"
-              title="Scrollback lines (applies to terminals opened afterwards)"
-            >
-              Scrollback
-              <input
-                type="number"
-                min={100}
-                step={1000}
-                value={scrollback}
-                onChange={(e) => setScrollback(Number(e.target.value))}
-                className="w-20 rounded border border-(--border) bg-transparent px-1.5 py-0.5 text-(--text-dim) outline-none focus:border-(--accent)"
-              />
-            </label>
-            <label
-              className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-xs text-(--text-dim) hover:text-(--text)"
-              title="Let the SFTP panel follow the terminal's working directory (OSC 7)"
-            >
-              <input
-                type="checkbox"
-                checked={followCwd}
-                onChange={(e) => setFollowCwd(e.target.checked)}
-                className="accent-(--accent)"
-              />
-              Follow cwd
-            </label>
-            <label
-              className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-xs text-(--text-dim) hover:text-(--text)"
-              title="Highlight keywords (errors, warnings, IPs) in terminal output"
-            >
-              <input
-                type="checkbox"
-                checked={highlightEnabled}
-                onChange={(e) => setHighlightEnabled(e.target.checked)}
-                className="accent-(--accent)"
-              />
-              Highlight
-            </label>
-            <label
-              className="flex items-center justify-between gap-2 px-3 py-1.5 text-xs text-(--text-dim)"
-              title="Color theme"
-            >
-              Theme
-              <select
-                value={themeId}
-                onChange={(e) => setThemeId(e.target.value)}
-                className="cursor-pointer rounded border border-(--border) bg-transparent px-1.5 py-0.5 text-xs text-(--text-dim) hover:text-(--text)"
-              >
-                {Object.values(THEMES).map((theme) => (
-                  <option
-                    key={theme.id}
-                    value={theme.id}
-                    className="bg-(--panel-alt) text-(--text)"
-                  >
-                    {theme.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-        </>
+          <MenuItem
+            icon={mdiViewSplitHorizontal}
+            label="Split down…"
+            title="Split down (choose target host)"
+            disabled={noActiveTab}
+            onClick={(e) => {
+              setOverflowMenu(null);
+              openSplitMenu(e, "vertical");
+            }}
+          />
+          <MenuItem
+            icon={mdiBroadcast}
+            label="Broadcast input to all panes"
+            title="Broadcast input to all panes (MultiExec)"
+            disabled={noActiveTab}
+            onClick={() => {
+              setOverflowMenu(null);
+              toggleBroadcast(activeTabId!);
+            }}
+          />
+          <MenuDivider />
+          <MenuItem
+            icon={mdiCogOutline}
+            label="Settings…"
+            title="Settings (Cmd/Ctrl+,)"
+            onClick={() => setSettingsOpen(true)}
+          />
+        </Menu>
       )}
 
       {newTabMenu && (
-        <>
-          {/* Click-away layer closing the menu */}
-          <div className="fixed inset-0 z-40" onClick={() => setNewTabMenu(null)} />
-          <div
-            className="fixed z-50 max-h-80 w-56 overflow-y-auto rounded border border-(--border) bg-(--panel-alt) py-1 shadow-xl"
-            style={{ left: newTabMenu.x, top: newTabMenu.y }}
-          >
-            <button
-              onClick={() => {
-                setNewTabMenu(null);
-                openLocalTab().catch(() => {});
-              }}
-              className={menuItemClass}
-            >
-              <MdiIcon path={mdiConsole} size="14px" />
-              Local terminal
-            </button>
-            <button
-              onClick={() => {
-                setNewTabMenu(null);
-                setNewConnPrefill(null);
-                setNewConnOpen(true);
-              }}
-              className={menuItemClass}
-            >
-              <MdiIcon path={mdiSsh} size="14px" />
-              SSH connection…
-            </button>
+        <Menu
+          x={newTabMenu.x}
+          y={newTabMenu.y}
+          width={224}
+          className="max-h-80 overflow-y-auto"
+          onClose={() => setNewTabMenu(null)}
+        >
+          <MenuItem
+            icon={mdiConsole}
+            label="Local terminal"
+            onClick={() => {
+              setNewTabMenu(null);
+              openLocalTab().catch(() => {});
+            }}
+          />
+          <MenuItem
+            icon={mdiSsh}
+            label="SSH connection…"
+            onClick={() => {
+              setNewTabMenu(null);
+              setNewConnPrefill(null);
+              setNewConnOpen(true);
+            }}
+          />
 
-            {savedSessions.length > 0 && (
-              <p className="mt-1 border-t border-(--border) px-3 pt-2 pb-0.5 text-xs font-medium text-(--text-dim)">
-                Saved
-              </p>
-            )}
-            {savedSessions.map((s) => (
-              <button
-                key={s.id}
-                onClick={() => connectSavedAsTab(s)}
-                className={menuItemClass}
-                title={`${s.username}@${s.host}:${s.port}`}
-              >
-                <MdiIcon path={mdiSsh} size="14px" />
-                <span className="truncate">{s.name}</span>
-              </button>
-            ))}
+          {savedSessions.length > 0 && (
+            <p className="mt-1 border-t border-(--border) px-3 pt-2 pb-0.5 text-xs font-medium text-(--text-dim)">
+              Saved
+            </p>
+          )}
+          {savedSessions.map((s) => (
+            <MenuItem
+              key={s.id}
+              icon={mdiSsh}
+              label={<span className="truncate">{s.name}</span>}
+              title={`${s.username}@${s.host}:${s.port}`}
+              onClick={() => connectSavedAsTab(s)}
+            />
+          ))}
 
-            {sshConfigHosts.length > 0 && (
-              <p className="mt-1 border-t border-(--border) px-3 pt-2 pb-0.5 text-xs font-medium text-(--text-dim)">
-                From ~/.ssh/config
-              </p>
-            )}
-            {sshConfigHosts.map((h) => (
-              <button
-                key={h.alias}
-                onClick={() => connectSavedAsTab(sshConfigAsSaved(h))}
-                className={menuItemClass}
-                title={`${h.user ? `${h.user}@` : ""}${h.hostName}:${h.port ?? 22}`}
-              >
-                <MdiIcon path={mdiSsh} size="14px" />
-                <span className="truncate">{h.alias}</span>
-              </button>
-            ))}
-          </div>
-        </>
+          {sshConfigHosts.length > 0 && (
+            <p className="mt-1 border-t border-(--border) px-3 pt-2 pb-0.5 text-xs font-medium text-(--text-dim)">
+              From ~/.ssh/config
+            </p>
+          )}
+          {sshConfigHosts.map((h) => (
+            <MenuItem
+              key={h.alias}
+              icon={mdiSsh}
+              label={<span className="truncate">{h.alias}</span>}
+              title={`${h.user ? `${h.user}@` : ""}${h.hostName}:${h.port ?? 22}`}
+              onClick={() => connectSavedAsTab(sshConfigAsSaved(h))}
+            />
+          ))}
+        </Menu>
       )}
 
       {newConnOpen && (
@@ -561,90 +430,78 @@ export default function TabBar() {
       )}
 
       {splitMenu && activeTab && (
-        <>
-          {/* Click-away layer closing the menu */}
-          <div className="fixed inset-0 z-40" onClick={() => setSplitMenu(null)} />
-          <div
-            className="fixed z-50 max-h-80 w-56 overflow-y-auto rounded border border-(--border) bg-(--panel-alt) py-1 shadow-xl"
-            style={{ left: splitMenu.x, top: splitMenu.y }}
-          >
-            <p className="px-3 pt-1 pb-0.5 text-xs font-medium text-(--text-dim)">
-              Split {splitMenu.direction === "horizontal" ? "right" : "down"} with
+        <Menu
+          x={splitMenu.x}
+          y={splitMenu.y}
+          width={224}
+          className="max-h-80 overflow-y-auto"
+          onClose={() => setSplitMenu(null)}
+        >
+          <p className="px-3 pt-1 pb-0.5 text-xs font-medium text-(--text-dim)">
+            Split {splitMenu.direction === "horizontal" ? "right" : "down"} with
+          </p>
+          <MenuItem
+            icon={mdiContentDuplicate}
+            label="Duplicate current pane"
+            onClick={() => {
+              const { direction } = splitMenu;
+              setSplitMenu(null);
+              splitActivePane(direction).catch((e) => console.error(e));
+            }}
+          />
+          <MenuItem
+            icon={mdiConsole}
+            label="Local terminal"
+            onClick={() => {
+              const { direction } = splitMenu;
+              setSplitMenu(null);
+              splitTabWithLocal(activeTabId!, direction).catch((e) =>
+                console.error(e),
+              );
+            }}
+          />
+
+          {savedSessions.length > 0 && (
+            <p className="px-3 pt-2 pb-0.5 text-xs font-medium text-(--text-dim)">
+              Saved
             </p>
-            <button
-              onClick={() => {
-                const { direction } = splitMenu;
-                setSplitMenu(null);
-                splitActivePane(direction).catch((e) => console.error(e));
-              }}
-              className={menuItemClass}
-            >
-              <MdiIcon path={mdiContentDuplicate} size="14px" />
-              Duplicate current pane
-            </button>
-            <button
-              onClick={() => {
-                const { direction } = splitMenu;
-                setSplitMenu(null);
-                splitTabWithLocal(activeTabId!, direction).catch((e) =>
-                  console.error(e),
-                );
-              }}
-              className={menuItemClass}
-            >
-              <MdiIcon path={mdiConsole} size="14px" />
-              Local terminal
-            </button>
+          )}
+          {savedSessions.map((s) => (
+            <MenuItem
+              key={s.id}
+              icon={mdiSsh}
+              label={<span className="truncate">{s.name}</span>}
+              title={`${s.username}@${s.host}:${s.port}`}
+              onClick={() => splitToSession(s, splitMenu.direction)}
+            />
+          ))}
 
-            {savedSessions.length > 0 && (
-              <p className="px-3 pt-2 pb-0.5 text-xs font-medium text-(--text-dim)">
-                Saved
-              </p>
-            )}
-            {savedSessions.map((s) => (
-              <button
-                key={s.id}
-                onClick={() => splitToSession(s, splitMenu.direction)}
-                className={menuItemClass}
-                title={`${s.username}@${s.host}:${s.port}`}
-              >
-                <MdiIcon path={mdiSsh} size="14px" />
-                <span className="truncate">{s.name}</span>
-              </button>
-            ))}
+          {sshConfigHosts.length > 0 && (
+            <p className="px-3 pt-2 pb-0.5 text-xs font-medium text-(--text-dim)">
+              From ~/.ssh/config
+            </p>
+          )}
+          {sshConfigHosts.map((h) => (
+            <MenuItem
+              key={h.alias}
+              icon={mdiSsh}
+              label={<span className="truncate">{h.alias}</span>}
+              title={`${h.user ? `${h.user}@` : ""}${h.hostName}:${h.port ?? 22}`}
+              onClick={() => splitToSession(sshConfigAsSaved(h), splitMenu.direction)}
+            />
+          ))}
 
-            {sshConfigHosts.length > 0 && (
-              <p className="px-3 pt-2 pb-0.5 text-xs font-medium text-(--text-dim)">
-                From ~/.ssh/config
-              </p>
-            )}
-            {sshConfigHosts.map((h) => (
-              <button
-                key={h.alias}
-                onClick={() =>
-                  splitToSession(sshConfigAsSaved(h), splitMenu.direction)
-                }
-                className={menuItemClass}
-                title={`${h.user ? `${h.user}@` : ""}${h.hostName}:${h.port ?? 22}`}
-              >
-                <MdiIcon path={mdiSsh} size="14px" />
-                <span className="truncate">{h.alias}</span>
-              </button>
-            ))}
-
-            <button
-              onClick={() => {
-                const { direction } = splitMenu;
-                setSplitMenu(null);
-                setSplitDialog({ prefill: null, direction });
-              }}
-              className={`${menuItemClass} mt-1 border-t border-(--border)`}
-            >
-              <MdiIcon path={mdiSsh} size="14px" />
-              Other SSH connection…
-            </button>
-          </div>
-        </>
+          <MenuDivider />
+          <MenuItem
+            icon={mdiSsh}
+            label="Other SSH connection…"
+            onClick={() => {
+              const { direction } = splitMenu;
+              setSplitMenu(null);
+              setSplitDialog({ prefill: null, direction });
+            }}
+          />
+        </Menu>
       )}
 
       {splitDialog && activeTabId && (

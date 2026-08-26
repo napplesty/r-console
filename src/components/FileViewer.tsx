@@ -3,12 +3,19 @@ import { invoke } from "@tauri-apps/api/core";
 import { monaco } from "../lib/monaco";
 import { useAppStore } from "../state/store";
 import { getTheme } from "../lib/themes";
+import FloatingWindow from "./ui/FloatingWindow";
 
 interface FileViewerProps {
-  connKey: string;
+  /** SSH connection key; undefined reads/writes the local filesystem. */
+  connKey?: string;
   remotePath: string;
   /** 1-based line to reveal and focus (used by grep results). */
   line?: number;
+  /** Floating-window placement: viewport position and stacking order. */
+  initialX: number;
+  initialY: number;
+  z: number;
+  onFocus: () => void;
   onClose: () => void;
 }
 
@@ -52,11 +59,15 @@ export function languageForPath(remotePath: string): string {
   return EXT_TO_LANGUAGE[ext] ?? "plaintext";
 }
 
-/** Modal editor for a remote text file; saves back over SFTP. */
+/** Floating editor for a remote or local text file; saves back in place. */
 export default function FileViewer({
   connKey,
   remotePath,
   line,
+  initialX,
+  initialY,
+  z,
+  onFocus,
   onClose,
 }: FileViewerProps) {
   const [error, setError] = useState<string | null>(null);
@@ -74,11 +85,16 @@ export default function FileViewer({
     setSaving(true);
     setNotice(null);
     try {
-      await invoke("sftp_write_text", {
-        connKey,
-        remotePath,
-        content: editor.getValue(),
-      });
+      await (connKey
+        ? invoke("sftp_write_text", {
+            connKey,
+            remotePath,
+            content: editor.getValue(),
+          })
+        : invoke("localfs_write_text", {
+            path: remotePath,
+            content: editor.getValue(),
+          }));
       setDirty(false);
       setNotice("Saved");
     } catch (err) {
@@ -119,7 +135,10 @@ export default function FileViewer({
     );
 
     let cancelled = false;
-    invoke<string>("sftp_read_text", { connKey, remotePath })
+    (connKey
+      ? invoke<string>("sftp_read_text", { connKey, remotePath })
+      : invoke<string>("localfs_read_text", { path: remotePath })
+    )
       .then((text) => {
         if (cancelled) return;
         editor.setValue(text);
@@ -152,57 +171,59 @@ export default function FileViewer({
     monaco.editor.setTheme(getTheme(themeId).monaco);
   }, [themeId]);
 
+  // A grep hit can retarget an already-open window; jump to the new line.
+  useEffect(() => {
+    if (!line || line <= 0) return;
+    const editor = editorRef.current;
+    if (!editor || loading) return;
+    editor.setPosition({ lineNumber: line, column: 1 });
+    editor.revealLineInCenter(line);
+    editor.focus();
+  }, [line, loading]);
+
   const close = () => {
     if (dirty && !window.confirm("Discard unsaved changes?")) return;
     onClose();
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-      onClick={close}
+    <FloatingWindow
+      title={
+        <>
+          {remotePath}
+          {dirty && <span className="ml-1 text-amber-400">●</span>}
+        </>
+      }
+      actions={
+        <>
+          {notice && <span className="text-xs text-(--text-dim)">{notice}</span>}
+          <button
+            onClick={save}
+            disabled={!dirty || saving}
+            className="rounded bg-(--accent) px-3 py-1 text-xs text-white hover:bg-[color-mix(in_srgb,var(--accent)_85%,white)] disabled:opacity-40"
+            title="Save (Cmd/Ctrl+S)"
+          >
+            {saving ? "Saving…" : "Save"}
+          </button>
+        </>
+      }
+      onClose={close}
+      onFocus={onFocus}
+      z={z}
+      initialX={initialX}
+      initialY={initialY}
     >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="flex h-[70vh] w-[46rem] max-w-[90vw] flex-col rounded-lg border border-(--border) bg-(--panel-alt) shadow-xl"
-      >
-        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-white/10 px-4 py-2.5">
-          <span className="min-w-0 truncate text-sm text-(--text)">
-            {remotePath}
-            {dirty && <span className="ml-1 text-amber-400">●</span>}
-          </span>
-          <div className="flex shrink-0 items-center gap-2">
-            {notice && (
-              <span className="text-xs text-(--text-dim)">{notice}</span>
-            )}
-            <button
-              onClick={save}
-              disabled={!dirty || saving}
-              className="rounded bg-(--accent) px-3 py-1 text-xs text-white hover:bg-[color-mix(in_srgb,var(--accent)_85%,white)] disabled:opacity-40"
-              title="Save (Cmd/Ctrl+S)"
-            >
-              {saving ? "Saving…" : "Save"}
-            </button>
-            <button
-              onClick={close}
-              className="rounded px-2 py-0.5 text-(--text-dim) hover:bg-white/10 hover:text-(--text)"
-            >
-              ×
-            </button>
-          </div>
-        </div>
-        <div className="relative min-h-0 flex-1">
-          <div ref={hostRef} className="absolute inset-0" />
-          {error && (
-            <p className="absolute inset-0 p-4 text-sm text-red-400">{error}</p>
-          )}
-          {!error && loading && (
-            <p className="absolute inset-0 p-4 text-sm text-(--text-dim)">
-              Loading…
-            </p>
-          )}
-        </div>
+      <div className="relative min-h-0 flex-1">
+        <div ref={hostRef} className="absolute inset-0" />
+        {error && (
+          <p className="absolute inset-0 p-4 text-sm text-red-400">{error}</p>
+        )}
+        {!error && loading && (
+          <p className="absolute inset-0 p-4 text-sm text-(--text-dim)">
+            Loading…
+          </p>
+        )}
       </div>
-    </div>
+    </FloatingWindow>
   );
 }

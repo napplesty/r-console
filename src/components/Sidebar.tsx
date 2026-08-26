@@ -11,6 +11,7 @@ import {
 import { useAppStore } from "../state/store";
 import { openLocalTab, sshConfigAsSaved, tryConnectSaved } from "../state/sessions";
 import ConnectDialog from "./ConnectDialog";
+import { Menu, MenuItem } from "./ui/Menu";
 import type { SavedSession } from "../lib/types";
 
 export default function Sidebar() {
@@ -26,7 +27,20 @@ export default function Sidebar() {
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [prefill, setPrefill] = useState<SavedSession | null>(null);
-  const [menuOpen, setMenuOpen] = useState(false);
+  // "+ New Session" dropdown position (viewport coords), or null when closed.
+  const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
+
+  // Anchor the dropdown to the button that opened it: below it in the
+  // expanded sidebar, beside it in the collapsed rail.
+  const openMenu = (
+    e: React.MouseEvent<HTMLButtonElement>,
+    side = false,
+  ) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    setMenuPos(
+      side ? { x: rect.right + 4, y: rect.top } : { x: rect.left, y: rect.bottom + 4 },
+    );
+  };
 
   useEffect(() => {
     loadSavedSessions().catch(() => {});
@@ -45,28 +59,24 @@ export default function Sidebar() {
     if (!(await tryConnectSaved(s))) openPrefilled(s);
   };
 
-  const menuButtons = (
-    <>
-      <button
+  const newSessionMenu = menuPos && (
+    <Menu x={menuPos.x} y={menuPos.y} width={176} onClose={() => setMenuPos(null)}>
+      <MenuItem
+        label="SSH connection…"
         onClick={() => {
-          setMenuOpen(false);
+          setMenuPos(null);
           setPrefill(null);
           setDialogOpen(true);
         }}
-        className="block w-full px-3 py-1.5 text-left text-xs text-(--text) hover:bg-white/5"
-      >
-        SSH connection…
-      </button>
-      <button
+      />
+      <MenuItem
+        label="Local terminal"
         onClick={() => {
-          setMenuOpen(false);
+          setMenuPos(null);
           openLocalTab().catch(() => {});
         }}
-        className="block w-full px-3 py-1.5 text-left text-xs text-(--text) hover:bg-white/5"
-      >
-        Local terminal
-      </button>
-    </>
+      />
+    </Menu>
   );
 
   return (
@@ -75,31 +85,17 @@ export default function Sidebar() {
     >
       {collapsed ? (
         <div className="flex flex-col items-center gap-1 py-2">
-          <div className="relative">
-            <button
-              onClick={() => setMenuOpen((v) => !v)}
-              title="New Session"
-              className="rounded p-1.5 text-(--text) hover:bg-white/10"
-            >
-              <MdiIcon path={mdiPlus} size="18px" />
-            </button>
-            {menuOpen && (
-              <>
-                {/* Click-away layer closing the menu */}
-                <div
-                  className="fixed inset-0 z-40"
-                  onClick={() => setMenuOpen(false)}
-                />
-                <div className="absolute top-0 left-full z-50 ml-1 w-44 rounded border border-(--border) bg-(--panel-alt) py-1 shadow-xl">
-                  {menuButtons}
-                </div>
-              </>
-            )}
-          </div>
+          <button
+            onClick={(e) => openMenu(e, true)}
+            title="New Session"
+            className="rounded p-1.5 text-(--text) hover:bg-(--hover-strong)"
+          >
+            <MdiIcon path={mdiPlus} size="18px" />
+          </button>
           <button
             onClick={() => setSidebarCollapsed(false)}
             title="Expand sidebar"
-            className="rounded p-1.5 text-(--text-dim) hover:bg-white/10"
+            className="rounded p-1.5 text-(--text-dim) hover:bg-(--hover-strong)"
           >
             <MdiIcon path={mdiChevronRight} size="18px" />
           </button>
@@ -114,7 +110,7 @@ export default function Sidebar() {
               <button
                 onClick={() => setSidebarPinned(!pinned)}
                 title={pinned ? "Unpin sidebar" : "Pin sidebar"}
-                className={`rounded p-1 hover:bg-white/10 ${
+                className={`rounded p-1 hover:bg-(--hover-strong) ${
                   pinned ? "text-(--accent)" : "text-(--text-dim)"
                 }`}
               >
@@ -123,7 +119,7 @@ export default function Sidebar() {
               <button
                 onClick={() => setSidebarCollapsed(true)}
                 title="Collapse sidebar"
-                className="rounded p-1 text-(--text-dim) hover:bg-white/10"
+                className="rounded p-1 text-(--text-dim) hover:bg-(--hover-strong)"
               >
                 <MdiIcon path={mdiChevronLeft} size="16px" />
               </button>
@@ -132,23 +128,11 @@ export default function Sidebar() {
 
           <div className="relative shrink-0 p-2">
             <button
-              onClick={() => setMenuOpen((v) => !v)}
-              className="w-full rounded bg-(--accent) px-2 py-1.5 text-xs whitespace-nowrap text-white hover:bg-[color-mix(in_srgb,var(--accent)_85%,white)]"
+              onClick={(e) => openMenu(e)}
+              className="w-full rounded-md bg-(--accent) px-2 py-1.5 text-xs whitespace-nowrap text-white shadow-sm hover:bg-[color-mix(in_srgb,var(--accent)_85%,white)]"
             >
               + New Session
             </button>
-            {menuOpen && (
-              <>
-                {/* Click-away layer closing the menu */}
-                <div
-                  className="fixed inset-0 z-40"
-                  onClick={() => setMenuOpen(false)}
-                />
-                <div className="absolute inset-x-2 top-full z-50 mt-1 rounded border border-(--border) bg-(--panel-alt) py-1 shadow-xl">
-                  {menuButtons}
-                </div>
-              </>
-            )}
           </div>
 
           <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto p-1">
@@ -167,7 +151,7 @@ export default function Sidebar() {
               <div
                 key={s.id}
                 onClick={() => connectSaved(s)}
-                className="group flex cursor-pointer items-center justify-between rounded px-2 py-1.5 hover:bg-white/5"
+                className="group flex cursor-pointer items-center justify-between rounded px-2 py-1.5 hover:bg-(--hover)"
               >
                 <div className="min-w-0">
                   <div className="truncate text-sm text-(--text)">{s.name}</div>
@@ -184,7 +168,7 @@ export default function Sidebar() {
                       () => {},
                     );
                   }}
-                  className="rounded px-1 text-(--text-dim) opacity-0 group-hover:opacity-100 hover:bg-white/10 hover:text-(--text)"
+                  className="rounded px-1 text-(--text-dim) opacity-0 group-hover:opacity-100 hover:bg-(--hover-strong) hover:text-(--text)"
                   title="Delete saved session"
                 >
                   ×
@@ -205,7 +189,7 @@ export default function Sidebar() {
                   // "not saved yet" and gets a fresh UUID when the user saves.
                   openPrefilled(sshConfigAsSaved(h));
                 }}
-                className="cursor-pointer rounded px-2 py-1.5 hover:bg-white/5"
+                className="cursor-pointer rounded px-2 py-1.5 hover:bg-(--hover)"
                 title={`${h.user ?? ""}@${h.hostName}:${h.port ?? 22}`}
               >
                 <div className="truncate text-sm text-(--text)">{h.alias}</div>
@@ -218,6 +202,8 @@ export default function Sidebar() {
           </div>
         </>
       )}
+
+      {newSessionMenu}
 
       {dialogOpen && (
         <ConnectDialog prefill={prefill} onClose={() => setDialogOpen(false)} />

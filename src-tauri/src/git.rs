@@ -89,10 +89,14 @@ async fn run_git(
                     }
                 }
             }
-            let out = cmd
-                .output()
-                .await
-                .map_err(|e| format!("Failed to run git: {e}"))?;
+            // Local git runs on the transfer pool: `git status` on a large
+            // repo can take seconds and must not stall command dispatch.
+            let out = crate::runtime::run_bulk(async move {
+                cmd.output()
+                    .await
+                    .map_err(|e| format!("Failed to run git: {e}"))
+            })
+            .await?;
             let mut output = String::from_utf8_lossy(&out.stdout).into_owned();
             output.push_str(&String::from_utf8_lossy(&out.stderr));
             Ok(CmdOutput {

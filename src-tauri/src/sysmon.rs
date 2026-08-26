@@ -33,13 +33,36 @@ df -kP / | awk 'NR == 2 { print "DISK " $3 " " $2 }'
 awk '{ print "LOAD " $1 " " $2 " " $3 }' /proc/loadavg
 "#;
 
+/// Collect system stats for the active pane's target: over an SSH exec
+/// channel for remote sessions, or through the local shell for local
+/// terminals (same script, same parsing — Linux-only either way; elsewhere
+/// the command fails and the frontend hides the monitor).
 #[tauri::command]
 pub async fn sys_stats(
     state: State<'_, SharedSessionManager>,
-    conn_key: String,
+    conn_key: Option<String>,
 ) -> Result<SysStats, String> {
-    let conn = get_conn(&state, &conn_key)?;
-    let out = conn.exec(STATS_SCRIPT).await?;
+    let out = match conn_key {
+        Some(key) => {
+            let conn = get_conn(&state, &key)?;
+            conn.exec(STATS_SCRIPT).await?
+        }
+        None => {
+            let out = tokio::process::Command::new("sh")
+                .arg("-c")
+                .arg(STATS_SCRIPT)
+                .output()
+                .await
+                .map_err(|e| format!("Failed to run stats script: {e}"))?;
+            if !out.status.success() {
+                return Err(format!(
+                    "stats script failed: {}",
+                    String::from_utf8_lossy(&out.stderr)
+                ));
+            }
+            String::from_utf8_lossy(&out.stdout).into_owned()
+        }
+    };
     parse_stats(&out)
 }
 

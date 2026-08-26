@@ -44,9 +44,9 @@ function Meter({
 /** Bottom status bar: active session info, SFTP transfer progress, and
  *  remote system stats for the active SSH tab. */
 export default function StatusBar() {
-  const tabs = useAppStore((s) => s.tabs);
-  const activeTabId = useAppStore((s) => s.activeTabId);
-  const activeTab = tabs.find((t) => t.id === activeTabId);
+  // Narrow selectors: only the active tab object re-renders this bar, not
+  // every background-pane update.
+  const activeTab = useAppStore((s) => s.tabs.find((t) => t.id === s.activeTabId));
   const pane = activeTab ? activePane(activeTab) : undefined;
   const gitPanelOpen = useAppStore((s) => s.gitPanelOpen);
   const setGitPanelOpen = useAppStore((s) => s.setGitPanelOpen);
@@ -82,15 +82,17 @@ export default function StatusBar() {
     return () => timers.forEach((t) => window.clearTimeout(t));
   }, [transfers]);
 
-  // Poll remote system stats for the active SSH pane only. The poll pauses
-  // while the pane is reconnecting/dead and re-runs (restoring the stats)
-  // as soon as the pane returns to live after a reconnect.
-  const connKey = pane?.kind === "ssh" ? pane.connKey : undefined;
+  // Poll system stats for the active pane: over SSH for remote panes, from
+  // the local machine for local terminals (connKey null → backend reads
+  // /proc locally). The poll pauses while the pane is reconnecting/dead and
+  // re-runs (restoring the stats) as soon as the pane returns to live.
+  const connKey = pane?.kind === "ssh" ? pane.connKey : null;
+  const isLocal = pane?.kind === "local";
   const connAlive = !pane?.status || pane.status === "live";
   const inFlight = useRef(false);
   useEffect(() => {
     setStats(null);
-    if (!connKey || !connAlive) return;
+    if ((!connKey && !isLocal) || !connAlive) return;
     const poll = async () => {
       if (inFlight.current) return;
       inFlight.current = true;
@@ -105,7 +107,7 @@ export default function StatusBar() {
     poll();
     const timer = window.setInterval(poll, 3000);
     return () => window.clearInterval(timer);
-  }, [connKey, connAlive]);
+  }, [connKey, isLocal, connAlive]);
 
   // Poll the SSH round-trip latency for the active SSH pane only.
   const pingInFlight = useRef(false);
@@ -170,7 +172,7 @@ export default function StatusBar() {
         ))}
       </span>
 
-      {connKey && stats && (
+      {(connKey || isLocal) && stats && (
         <span className="flex shrink-0 items-center gap-3 text-(--text-dim)">
           <Meter
             label="CPU"
@@ -194,7 +196,7 @@ export default function StatusBar() {
       <button
         onClick={() => setGitPanelOpen(!gitPanelOpen)}
         disabled={!pane}
-        className={`flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 hover:bg-white/10 disabled:opacity-40 ${
+        className={`flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 hover:bg-(--hover-strong) disabled:opacity-40 ${
           gitPanelOpen ? "text-(--accent)" : "text-(--text-dim)"
         }`}
         title="Toggle Git panel (Cmd/Ctrl+G)"

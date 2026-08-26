@@ -14,6 +14,11 @@ import {
 } from "../lib/terminalHighlight";
 
 const THEME_STORAGE_KEY = "r-console-theme";
+const FONT_SIZE_STORAGE_KEY = "r-console-font-size";
+const CURSOR_STYLE_STORAGE_KEY = "r-console-cursor-style";
+const CURSOR_BLINK_STORAGE_KEY = "r-console-cursor-blink";
+const IME_COMPAT_STORAGE_KEY = "r-console-ime-compat";
+const FPS_OVERLAY_STORAGE_KEY = "r-console-fps-overlay";
 const SCROLLBACK_STORAGE_KEY = "r-console-scrollback";
 const FOLLOW_CWD_STORAGE_KEY = "r-console-follow-cwd";
 const HIGHLIGHT_ENABLED_STORAGE_KEY = "r-console-highlight-enabled";
@@ -21,6 +26,22 @@ const HIGHLIGHT_RULES_STORAGE_KEY = "r-console-highlight-rules";
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "r-console-sidebar-collapsed";
 const SIDEBAR_PINNED_STORAGE_KEY = "r-console-sidebar-pinned";
 const DEFAULT_SCROLLBACK = 5000;
+const DEFAULT_FONT_SIZE = 14;
+const CURSOR_STYLES = ["block", "underline", "bar"] as const;
+
+export type CursorStyle = (typeof CURSOR_STYLES)[number];
+
+function readInitialFontSize(): number {
+  const saved = Number(localStorage.getItem(FONT_SIZE_STORAGE_KEY));
+  return Number.isFinite(saved) && saved >= 8 && saved <= 32 ? saved : DEFAULT_FONT_SIZE;
+}
+
+function readInitialCursorStyle(): CursorStyle {
+  const saved = localStorage.getItem(CURSOR_STYLE_STORAGE_KEY);
+  return (CURSOR_STYLES as readonly string[]).includes(saved ?? "")
+    ? (saved as CursorStyle)
+    : "block";
+}
 
 function readInitialThemeId(): string {
   const saved = localStorage.getItem(THEME_STORAGE_KEY);
@@ -88,6 +109,21 @@ interface AppState {  tabs: Tab[];
   savedSessions: SavedSession[];
   sshConfigHosts: SshConfigHost[];
   themeId: string;
+  /** Terminal font size in px; applied to open terminals live. */
+  fontSize: number;
+  /** Terminal cursor shape. */
+  cursorStyle: CursorStyle;
+  /** Terminal cursor blink. */
+  cursorBlink: boolean;
+  /**
+   * IME compatibility (xterm screenReaderMode): keeps the input textarea
+   * visible with a real caret, which improves IME composition on Linux
+   * webviews. Off by default — it mirrors terminal text for assistive tech
+   * and costs some render work.
+   */
+  imeCompat: boolean;
+  /** Show the FPS overlay (performance diagnostics). */
+  fpsOverlay: boolean;
   /** Terminal scrollback lines; applies to terminals opened afterwards. */
   scrollback: number;
   /** Whether OSC 7 cwd reports update the UI (SFTP panel follows terminal). */
@@ -106,6 +142,8 @@ interface AppState {  tabs: Tab[];
   paletteOpen: boolean;
   /** Controls visibility of the Git side panel (Cmd/Ctrl+G). */
   gitPanelOpen: boolean;
+  /** Controls visibility of the settings dialog (Cmd/Ctrl+,). */
+  settingsOpen: boolean;
   /** Narrow-rail sidebar mode (persisted). */
   sidebarCollapsed: boolean;
   /** When unpinned, the sidebar auto-collapses after a tab is launched. */
@@ -127,6 +165,11 @@ interface AppState {  tabs: Tab[];
   removeSavedSession: (id: string) => Promise<void>;
   loadSshConfigHosts: () => Promise<void>;
   setThemeId: (id: string) => void;
+  setFontSize: (size: number) => void;
+  setCursorStyle: (style: CursorStyle) => void;
+  setCursorBlink: (blink: boolean) => void;
+  setImeCompat: (on: boolean) => void;
+  setFpsOverlay: (on: boolean) => void;
   setScrollback: (lines: number) => void;
   setFollowCwd: (follow: boolean) => void;
   setHighlightEnabled: (enabled: boolean) => void;
@@ -136,6 +179,7 @@ interface AppState {  tabs: Tab[];
   setVaultDialogOpen: (open: boolean) => void;
   setPaletteOpen: (open: boolean) => void;
   setGitPanelOpen: (open: boolean) => void;
+  setSettingsOpen: (open: boolean) => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
   setSidebarPinned: (pinned: boolean) => void;
   setSessionCwd: (sessionId: string, cwd: string) => void;
@@ -155,6 +199,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   savedSessions: [],
   sshConfigHosts: [],
   themeId: initialThemeId,
+  fontSize: readInitialFontSize(),
+  cursorStyle: readInitialCursorStyle(),
+  cursorBlink: readStoredBool(CURSOR_BLINK_STORAGE_KEY, true),
+  imeCompat: readStoredBool(IME_COMPAT_STORAGE_KEY, false),
+  fpsOverlay: readStoredBool(FPS_OVERLAY_STORAGE_KEY, false),
   scrollback: readInitialScrollback(),
   followCwd: readStoredBool(FOLLOW_CWD_STORAGE_KEY, true),
   highlightEnabled: readStoredBool(HIGHLIGHT_ENABLED_STORAGE_KEY, true),
@@ -164,6 +213,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   vaultDialogOpen: false,
   paletteOpen: false,
   gitPanelOpen: false,
+  settingsOpen: false,
   sidebarCollapsed: readStoredBool(SIDEBAR_COLLAPSED_STORAGE_KEY, false),
   sidebarPinned: readStoredBool(SIDEBAR_PINNED_STORAGE_KEY, true),
   cwdBySession: {},
@@ -301,6 +351,32 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ themeId: id });
   },
 
+  setFontSize: (size) => {
+    const value = Math.min(32, Math.max(8, Math.floor(size)));
+    localStorage.setItem(FONT_SIZE_STORAGE_KEY, String(value));
+    set({ fontSize: value });
+  },
+
+  setCursorStyle: (style) => {
+    localStorage.setItem(CURSOR_STYLE_STORAGE_KEY, style);
+    set({ cursorStyle: style });
+  },
+
+  setCursorBlink: (blink) => {
+    localStorage.setItem(CURSOR_BLINK_STORAGE_KEY, String(blink));
+    set({ cursorBlink: blink });
+  },
+
+  setImeCompat: (on) => {
+    localStorage.setItem(IME_COMPAT_STORAGE_KEY, String(on));
+    set({ imeCompat: on });
+  },
+
+  setFpsOverlay: (on) => {
+    localStorage.setItem(FPS_OVERLAY_STORAGE_KEY, String(on));
+    set({ fpsOverlay: on });
+  },
+
   setScrollback: (lines) => {
     const value = Math.max(100, Math.floor(lines));
     localStorage.setItem(SCROLLBACK_STORAGE_KEY, String(value));
@@ -338,6 +414,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   setPaletteOpen: (open) => set({ paletteOpen: open }),
 
   setGitPanelOpen: (open) => set({ gitPanelOpen: open }),
+
+  setSettingsOpen: (open) => set({ settingsOpen: open }),
 
   setSidebarCollapsed: (collapsed) => {
     localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, String(collapsed));

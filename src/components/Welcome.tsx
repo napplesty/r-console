@@ -36,7 +36,7 @@ export default function Welcome() {
   };
 
   const linkClass =
-    "flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm text-(--text) hover:bg-white/5";
+    "flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm text-(--text) hover:bg-(--hover)";
   const linkIconClass = "shrink-0 text-(--text-dim)";
   const sectionTitle =
     "px-2 pt-5 pb-1 text-xs font-semibold tracking-wide text-(--text-dim) uppercase";

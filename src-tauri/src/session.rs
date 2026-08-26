@@ -105,10 +105,11 @@ pub fn session_spawn_local(
     state: State<'_, SharedSessionManager>,
     cols: u16,
     rows: u16,
+    cwd: Option<String>,
 ) -> Result<String, String> {
     let mut mgr = state.lock().map_err(|e| e.to_string())?;
     let id = mgr.alloc_id();
-    let pty = LocalPty::spawn(app, &id, cols, rows, window.label())?;
+    let pty = LocalPty::spawn(app, &id, cols, rows, window.label(), cwd.as_deref())?;
     mgr.sessions.insert(id.clone(), SessionKind::Local(pty));
     Ok(id)
 }
@@ -687,6 +688,32 @@ pub struct SshGrepHit {
     pub preview: String,
 }
 
+/// Parse `grep -rIn` output lines (`/path/to/file:123:matching text`) into
+/// hits, capped at 200. Lines whose path contains ':' cannot be told apart
+/// from the field separator and are skipped. Shared by the SSH and local
+/// grep commands.
+pub(crate) fn parse_grep_hits(out: &str) -> Vec<SshGrepHit> {
+    let mut hits = Vec::new();
+    for line in out.lines() {
+        if hits.len() >= 200 {
+            break;
+        }
+        let mut parts = line.splitn(3, ':');
+        let (Some(p), Some(n), Some(text)) = (parts.next(), parts.next(), parts.next()) else {
+            continue;
+        };
+        let Ok(n) = n.parse::<u32>() else {
+            continue;
+        };
+        hits.push(SshGrepHit {
+            path: p.to_string(),
+            line: n,
+            preview: text.trim().chars().take(200).collect(),
+        });
+    }
+    hits
+}
+
 /// Content search ("grep -r") inside a remote directory. Runs on a throwaway
 /// exec channel; output is capped at 200 hits. Note: paths containing ':'
 /// cannot be told apart from grep's field separator and are skipped.
@@ -704,23 +731,7 @@ pub async fn ssh_grep(
         crate::ssh::shell_quote(&path),
     );
     let out = conn.exec(&cmd).await?;
-    // Each hit line is `/path/to/file:123:matching text`.
-    let mut hits = Vec::new();
-    for line in out.lines() {
-        let mut parts = line.splitn(3, ':');
-        let (Some(p), Some(n), Some(text)) = (parts.next(), parts.next(), parts.next()) else {
-            continue;
-        };
-        let Ok(n) = n.parse::<u32>() else {
-            continue;
-        };
-        hits.push(SshGrepHit {
-            path: p.to_string(),
-            line: n,
-            preview: text.trim().chars().take(200).collect(),
-        });
-    }
-    Ok(hits)
+    Ok(parse_grep_hits(&out))
 }
 
 pub(crate) fn get_conn(
